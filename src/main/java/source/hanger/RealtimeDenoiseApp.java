@@ -5,6 +5,7 @@ import javax.sound.sampled.LineUnavailableException;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.IOException;
+import java.io.File;
 
 public class RealtimeDenoiseApp {
 
@@ -23,12 +24,20 @@ public class RealtimeDenoiseApp {
                 false     // 小端字节序 (与 dfnet-java 中的 ByteBuffer 保持一致)
         );
 
+        // 定义输出文件路径
+        String originalOutputFilePath = "out" + File.separator + "original_audio.wav";
+        String denoisedOutputFilePath = "out" + File.separator + "denoised_audio.wav";
+
         DeepFilterNetStreamProcessor processor = null;
         BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
+        RealtimeAudioWriter audioWriter = null; // 用于写入音频文件的监听器
 
         try {
-            // 1. 初始化 DeepFilterNetStreamProcessor
-            processor = new DeepFilterNetStreamProcessor(modelPath, attenLim, logLevel, audioFormat);
+            // 创建 RealtimeAudioWriter 实例
+            audioWriter = new RealtimeAudioWriter(audioFormat, originalOutputFilePath, denoisedOutputFilePath);
+
+            // 1. 初始化 DeepFilterNetStreamProcessor，并传入音频写入监听器
+            processor = new DeepFilterNetStreamProcessor(modelPath, attenLim, logLevel, audioFormat, audioWriter);
 
             // 2. 启动实时降噪处理
             processor.start();
@@ -56,6 +65,55 @@ public class RealtimeDenoiseApp {
                 // Ensure resources are released if an error occurs before stop() is called
                 processor.release(); // stop() already calls release(), but good practice for robustness
             }
+            if (audioWriter != null) {
+                try {
+                    audioWriter.close(); // 确保关闭 WAV 文件写入器
+                } catch (IOException e) {
+                    System.err.println("DF_APP_ERROR: 关闭 WAV 文件写入器时发生错误: " + e.getMessage());
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
+
+    /**
+     * 内部类 RealtimeAudioWriter 实现 AudioFrameListener 接口，负责将音频帧写入 WAV 文件。
+     */
+    private static class RealtimeAudioWriter implements AudioFrameListener, AutoCloseable {
+        private final WavFileWriter originalWavWriter;
+        private final WavFileWriter denoisedWavWriter;
+
+        public RealtimeAudioWriter(AudioFormat format, String originalOutputFilePath, String denoisedOutputFilePath) throws IOException {
+            this.originalWavWriter = new WavFileWriter(format, originalOutputFilePath);
+            this.denoisedWavWriter = new WavFileWriter(format, denoisedOutputFilePath);
+        }
+
+        @Override
+        public void onOriginalAudioFrame(byte[] audioBytes, int offset, int length) {
+            try {
+                originalWavWriter.write(audioBytes, offset, length);
+                System.out.println(String.format("DF_TRACE: RealtimeAudioWriter: original frame written, bytes: %d, first 4 bytes: %02X %02X %02X %02X", length, audioBytes[offset], audioBytes[offset+1], audioBytes[offset+2], audioBytes[offset+3]));
+            } catch (IOException e) {
+                System.err.println("DF_APP_ERROR: 写入原始音频文件失败: " + e.getMessage());
+                e.printStackTrace();
+            }
+        }
+
+        @Override
+        public void onDenoisedAudioFrame(byte[] audioBytes, int offset, int length) {
+            try {
+                denoisedWavWriter.write(audioBytes, offset, length);
+                System.out.println(String.format("DF_TRACE: RealtimeAudioWriter: denoised frame written, bytes: %d, first 4 bytes: %02X %02X %02X %02X", length, audioBytes[offset], audioBytes[offset+1], audioBytes[offset+2], audioBytes[offset+3]));
+            } catch (IOException e) {
+                System.err.println("DF_APP_ERROR: 写入降噪后音频文件失败: " + e.getMessage());
+                e.printStackTrace();
+            }
+        }
+
+        @Override
+        public void close() throws IOException {
+            originalWavWriter.close();
+            denoisedWavWriter.close();
         }
     }
 }

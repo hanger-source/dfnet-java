@@ -10,17 +10,19 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public class DeepFilterNetStreamProcessor {
 
-    private DeepFilterNetNativeLib nativeLib; // 新增：声明 DeepFilterNetNativeLib 实例
+    private DeepFilterNetNativeLib nativeLib;
     private Pointer dfState;
     private int frameLength;
     private AudioFormat audioFormat;
-    private DfNativeLogThread logThread; // Reusing the log thread from DeepFilterNetProcessor
+    private DfNativeLogThread logThread;
 
-    private TargetDataLine targetDataLine; // For audio input (microphone)
-    private SourceDataLine sourceDataLine; // For audio output (speaker)
+    private TargetDataLine targetDataLine;
+    private SourceDataLine sourceDataLine;
 
-    private BlockingQueue<float[]> inputQueue; // Queue for raw audio frames
-    private BlockingQueue<float[]> outputQueue; // Queue for denoised audio frames
+    private AudioFrameListener audioFrameListener;
+
+    private BlockingQueue<float[]> inputQueue;
+    private BlockingQueue<float[]> outputQueue;
 
     private AtomicBoolean running = new AtomicBoolean(false);
 
@@ -35,10 +37,12 @@ public class DeepFilterNetStreamProcessor {
      * @param attenLim 衰减限制 (dB)。
      * @param logLevel 日志级别 (例如 "info", "debug")。
      * @param audioFormat 音频格式，必须是单声道、16-bit PCM、48kHz。
+     * @param listener 音频帧监听器 (可为null)。
      * @throws LineUnavailableException 如果无法获取音频输入/输出行。
      * @throws RuntimeException 如果模型无法创建或文件不存在，或者音频格式不支持。
      */
-    public DeepFilterNetStreamProcessor(String modelPath, float attenLim, String logLevel, AudioFormat audioFormat)
+    public DeepFilterNetStreamProcessor(String modelPath, float attenLim, String logLevel, AudioFormat audioFormat,
+                                        AudioFrameListener listener)
             throws LineUnavailableException, RuntimeException {
 
         // 验证音频格式
@@ -46,6 +50,7 @@ public class DeepFilterNetStreamProcessor {
             throw new IllegalArgumentException("DF_ERROR: 不支持的音频格式。DeepFilterNet 仅支持单声道、16-bit PCM、48kHz 采样率的音频。");
         }
         this.audioFormat = audioFormat;
+        this.audioFrameListener = listener;
 
         // 获取 DeepFilterNetNativeLib 实例
         this.nativeLib = DeepFilterNetLibraryInitializer.getNativeLibraryInstance();
@@ -160,6 +165,12 @@ public class DeepFilterNetStreamProcessor {
             try {
                 int bytesRead = targetDataLine.read(buffer, 0, buffer.length);
                 if (bytesRead == buffer.length) {
+                    // 将原始音频数据报告给监听器 (如果存在)
+                    if (audioFrameListener != null) {
+                        audioFrameListener.onOriginalAudioFrame(buffer, 0, bytesRead);
+                        System.out.println(String.format("DF_TRACE: original frame captured, bytes: %d, first 4 bytes: %02X %02X %02X %02X", bytesRead, buffer[0], buffer[1], buffer[2], buffer[3]));
+                    }
+
                     // Convert byte[] to float[]
                     byteBuffer.clear();
                     byteBuffer.put(buffer);
@@ -172,14 +183,19 @@ public class DeepFilterNetStreamProcessor {
                     // Not a full frame, can be problematic for fixed frame processing.
                     // For simplicity, we only process full frames.
                     System.err.println("DF_WARNING: 捕获到不足一帧的数据，已忽略。");
+                } else if (bytesRead == -1) {
+                    System.out.println("DF_TRACE: End of audio stream reached in captureAudio.");
+                    break; // End of stream
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
+                System.out.println("DF_TRACE: captureAudio thread interrupted.");
                 break;
             } catch (Exception e) {
                 System.err.println("DF_LOG_ERROR: 音频捕获过程中发生错误: " + e.getMessage());
             }
         }
+        System.out.println("DF_TRACE: captureAudio thread stopped.");
     }
 
     /**
@@ -188,50 +204,64 @@ public class DeepFilterNetStreamProcessor {
     private void processAudio() {
         float[] inputFloats = new float[frameLength];
         float[] outputFloats = new float[frameLength];
+        int frameCount = 0; // for tracing
 
         while (running.get()) {
             try {
                 inputFloats = inputQueue.take(); // Take from input queue
-
+                frameCount++;
                 // Process the audio frame
                 nativeLib.df_process_frame(dfState, inputFloats, outputFloats);
-
+                System.out.println(String.format("DF_TRACE: frame processed, frame count: %d, first float: %.4f", frameCount, outputFloats[0]));
                 outputQueue.put(outputFloats); // Put into output queue
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
+                System.out.println("DF_TRACE: processAudio thread interrupted.");
                 break;
             } catch (Exception e) {
                 System.err.println("DF_LOG_ERROR: 音频处理过程中发生错误: " + e.getMessage());
             }
         }
+        System.out.println("DF_TRACE: processAudio thread stopped.");
     }
 
     /**
      * 播放音频的线程逻辑。
      */
     private void playbackAudio() {
-        byte[] outputBytes = new byte[frameLength * audioFormat.getFrameSize()];
-        ByteBuffer byteBuffer = ByteBuffer.allocate(frameLength * 4); // 4 bytes per float
+        ByteBuffer byteBuffer = ByteBuffer.allocate(frameLength * audioFormat.getFrameSize()); // 修正 ByteBuffer 分配大小
         byteBuffer.order(audioFormat.isBigEndian() ? ByteOrder.BIG_ENDIAN : ByteOrder.LITTLE_ENDIAN);
+        int frameCount = 0; // for tracing
 
         while (running.get()) {
             try {
                 float[] outputFloats = outputQueue.take(); // Take from output queue
-
+                frameCount++;
                 // Convert float[] to byte[] (16-bit PCM)
                 byteBuffer.clear();
                 for (int i = 0; i < frameLength; i++) {
-                    short s = (short) (outputFloats[i] * 32768.0f); // Scale float to 16-bit short
+                    short s = (short) (outputFloats[i] * 32768.0f);
                     byteBuffer.putShort(s);
                 }
-                sourceDataLine.write(byteBuffer.array(), 0, outputBytes.length); // Write to speaker
+                byte[] processedBytes = byteBuffer.array(); // 获取降噪后的字节数组
+                int bytesToWrite = frameLength * audioFormat.getFrameSize(); // 修正实际写入的字节数
+                sourceDataLine.write(processedBytes, 0, bytesToWrite); // Write to speaker
+                System.out.println(String.format("DF_TRACE: denoised frame played, frame count: %d, bytes: %d, first 4 bytes: %02X %02X %02X %02X", frameCount, bytesToWrite, processedBytes[0], processedBytes[1], processedBytes[2], processedBytes[3]));
+
+                // 将降噪后的音频数据报告给监听器 (如果存在)
+                if (audioFrameListener != null) {
+                    audioFrameListener.onDenoisedAudioFrame(processedBytes, 0, bytesToWrite); // 修正传递给监听器的字节数
+                }
+
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
+                System.out.println("DF_TRACE: playbackAudio thread interrupted.");
                 break;
             } catch (Exception e) {
                 System.err.println("DF_LOG_ERROR: 音频播放过程中发生错误: " + e.getMessage());
             }
         }
+        System.out.println("DF_TRACE: playbackAudio thread stopped.");
     }
 
     /**
