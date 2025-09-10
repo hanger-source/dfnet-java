@@ -1,0 +1,5 @@
+source/hanger/DeepFilterNetProcessor$AudioOutputStream.class
+source/hanger/DeepFilterNetProcessor$DfNativeLogThread.class
+source/hanger/DenoiseWavFile.class
+source/hanger/DeepFilterNetProcessor.class
+source/hanger/DeepFilterNetNativeLib.class

@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>source.hanger</groupId>
+    <artifactId>dfnet-java</artifactId>
+    <version>1.0-SNAPSHOT</version>
+
+    <properties>
+        <maven.compiler.source>11</maven.compiler.source> <!-- 兼容性考虑，使用Java 11 -->
+        <maven.compiler.target>11</maven.compiler.target>
+        <jna.version>5.14.0</jna.version> <!-- JNA 版本 -->
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+    <dependencies>
+        <!-- JNA Core -->
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna</artifactId>
+            <version>${jna.version}</version>
+        </dependency>
+        <!-- JNA Platform (可选，提供更多平台特定功能) -->
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna-platform</artifactId>
+            <version>${jna.version}</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Maven Compiler Plugin -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version> <!-- 使用较新版本 -->
+                <configuration>
+                    <source>${maven.compiler.source}</source>
+                    <target>${maven.compiler.target}</target>
+                </configuration>
+            </plugin>
+
+            <!-- Maven Exec Plugin - 用于运行Java主类 -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.1.0</version> <!-- 使用较新版本 -->
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>java</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <mainClass>source.hanger.DenoiseWavFile</mainClass> <!-- 更新为新的包名 -->
+                    <arguments>
+                        <!-- 可以将命令行参数传递给主类，例如模型路径 -->
+                        <!-- <argument>value</argument> -->
+                    </arguments>
+                    <systemProperties>
+                        <!-- JNA 库路径现在由 DeepFilterNetNativeLib 的静态初始化块负责设置，此处不再需要。 -->
+                        <!-- <systemProperty>
+                            <key>jna.library.path</key>
+                            <value>${project.basedir}/lib/${os.name.toLowerCase()}-${os.arch.toLowerCase()}</value>
+                        </systemProperty> -->
+                    </systemProperties>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
