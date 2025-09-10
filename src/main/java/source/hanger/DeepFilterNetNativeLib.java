@@ -1,26 +1,15 @@
 package source.hanger;
 
-import com.sun.jna.Library;
 import com.sun.jna.Native;
+import com.sun.jna.Library;
 import com.sun.jna.Pointer;
-
-// import java.io.File; // 不再需要，因为静态初始化块已移除
 
 public interface DeepFilterNetNativeLib extends Library {
 
-    // 在 macOS 上，共享库的名称通常是 libdf.dylib，JNA 会自动查找
-    // 在 Linux 上是 libdf.so
-    // 这里我们只提供"df"，JNA会根据平台自动添加前缀和后缀
     DeepFilterNetNativeLib INSTANCE = Native.load("df", DeepFilterNetNativeLib.class);
 
-    // 映射 DFState (不透明指针)
-    // C: pub struct DFState
-    // Java: Pointer
-
-    // 映射 df_create
-    // C: pub unsafe extern "C" fn df_create(path: *const c_char, atten_lim: f32, log_level: *const c_char) -> *mut DFState
-    // Java: Pointer df_create(String path, float atten_lim, String log_level)
-    Pointer df_create(String path, float atten_lim, String log_level);
+    // C 接口映射
+    Pointer df_create(String path, float attenLim, String logLevel);
 
     // 映射 df_get_frame_length
     // C: pub unsafe extern "C" fn df_get_frame_length(st: *mut DFState) -> usize
@@ -28,7 +17,7 @@ public interface DeepFilterNetNativeLib extends Library {
     int df_get_frame_length(Pointer st);
 
     // 映射 df_process_frame
-    // C: pub unsafe extern "C" fn df_process_frame(st: *mut DFState, input: *mut c_float, output: *mut c_float) -> c_float
+    // C: pub unsafe extern "C" fn df_process_frame(st: *mut DFState, input: float[], output: float[]) -> c_float
     // Java: float df_process_frame(Pointer st, float[] input, float[] output)
     // JNA 会处理 float[] 到 float* 的映射
     float df_process_frame(Pointer st, float[] input, float[] output);

@@ -56,17 +56,15 @@
                     </execution>
                 </executions>
                 <configuration>
-                    <mainClass>source.hanger.DenoiseWavFile</mainClass> <!-- 更新为新的包名 -->
                     <arguments>
                         <!-- 可以将命令行参数传递给主类，例如模型路径 -->
                         <!-- <argument>value</argument> -->
                     </arguments>
                     <systemProperties>
-                        <!-- JNA 库路径现在由 DeepFilterNetNativeLib 的静态初始化块负责设置，此处不再需要。 -->
-                        <!-- <systemProperty>
+                        <systemProperty>
                             <key>jna.library.path</key>
-                            <value>${project.basedir}/lib/${os.name.toLowerCase()}-${os.arch.toLowerCase()}</value>
-                        </systemProperty> -->
+                            <value>${project.basedir}/lib/${os.name.toLowerCase().startsWith("mac") ? "macos" : os.name.toLowerCase()}-${os.arch.toLowerCase()}</value>
+                        </systemProperty>
                     </systemProperties>
                 </configuration>
             </plugin>

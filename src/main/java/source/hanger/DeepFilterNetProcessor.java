@@ -10,73 +10,10 @@ import java.io.OutputStream;
 
 public class DeepFilterNetProcessor {
 
-    // 静态初始化块，用于在类加载时设置 JNA 库路径
-    static {
-        // 动态获取当前 Java 项目的根目录 (即 dfnet-java)
-        String projectRoot = new File(".").getAbsolutePath();
-        // 移除末尾可能存在的 "/." 或 "."
-        if (projectRoot.endsWith(File.separator + ".")) {
-            projectRoot = projectRoot.substring(0, projectRoot.length() - 2);
-        } else if (projectRoot.endsWith(".")) {
-            projectRoot = projectRoot.substring(0, projectRoot.length() - 1);
-        }
-        if (!projectRoot.endsWith(File.separator)) {
-            projectRoot += File.separator;
-        }
-
-        // 根据操作系统和架构构建平台特定的本地库路径
-        String osName = System.getProperty("os.name").toLowerCase();
-        // 修正 macOS 的 os.name 字符串
-        if (osName.contains("mac")) {
-            osName = "macos";
-        }
-        String osArch = System.getProperty("os.arch").toLowerCase();
-        String nativeLibPath = projectRoot + "lib" + File.separator + osName + "-" + osArch;
-
-        System.setProperty("jna.library.path", nativeLibPath);
-        System.out.println("DF_LOG: JNA library path set to: " + nativeLibPath);
-    }
-
+    private DeepFilterNetNativeLib nativeLib;
     private Pointer dfState;
     private int frameLength;
     private AudioFormat audioFormat;
-
-    // 内部类用于处理JNA的日志消息
-    private static class DfNativeLogThread extends Thread {
-        private Pointer state;
-        private volatile boolean running = true;
-
-        public DfNativeLogThread(Pointer state) {
-            this.state = state;
-        }
-
-        public void run() {
-            while (running) {
-                try {
-                    Pointer logMsgPtr = DeepFilterNetNativeLib.INSTANCE.df_next_log_msg(state);
-                    if (logMsgPtr != Pointer.NULL) {
-                        String logMsg = logMsgPtr.getString(0);
-                        System.out.println("DF_NATIVE_LOG: " + logMsg);
-                        DeepFilterNetNativeLib.INSTANCE.df_free_log_msg(logMsgPtr);
-                    } else {
-                        // 如果没有日志，等待一小段时间以避免CPU空转
-                        Thread.sleep(10);
-                    }
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    running = false;
-                    System.err.println("DF_LOG_ERROR: 日志线程被中断。");
-                } catch (Exception e) {
-                    System.err.println("DF_LOG_ERROR: 读取原生日志时发生错误: " + e.getMessage());
-                }
-            }
-        }
-
-        public void stopLogging() {
-            running = false;
-            this.interrupt();
-        }
-    }
 
     private DfNativeLogThread logThread;
 
@@ -94,8 +31,11 @@ public class DeepFilterNetProcessor {
             throw new RuntimeException("DF_ERROR: 模型文件不存在: " + modelPath);
         }
 
+        // 获取 DeepFilterNetNativeLib 实例
+        nativeLib = DeepFilterNetLibraryInitializer.getNativeLibraryInstance();
+
         // 1. 创建 DeepFilterNet 模型实例
-        dfState = DeepFilterNetNativeLib.INSTANCE.df_create(modelPath, attenLim, logLevel);
+        dfState = nativeLib.df_create(modelPath, attenLim, logLevel);
         if (dfState == Pointer.NULL) {
             throw new RuntimeException("DF_ERROR: 无法创建 DeepFilterNet 模型。请检查模型路径或日志。");
         }
@@ -106,7 +46,7 @@ public class DeepFilterNetProcessor {
         logThread.start();
 
         // 2. 获取 DeepFilterNet 期望的帧长度
-        frameLength = DeepFilterNetNativeLib.INSTANCE.df_get_frame_length(dfState);
+        frameLength = nativeLib.df_get_frame_length(dfState);
         System.out.println("DF_LOG: DeepFilterNet 期望的帧长度 (样本数): " + frameLength);
     }
 
@@ -176,7 +116,7 @@ public class DeepFilterNetProcessor {
                     }
 
                     // 处理音频帧
-                    DeepFilterNetNativeLib.INSTANCE.df_process_frame(dfState, inputFloats, outputFloats);
+                    nativeLib.df_process_frame(dfState, inputFloats, outputFloats);
 
                     // 将 float[] 转换为 byte[] (16-bit PCM)
                     byteBuffer.clear();
@@ -192,10 +132,11 @@ public class DeepFilterNetProcessor {
                 System.out.println("DF_LOG: 降噪后的 WAV 文件已保存到: " + outputWavPath);
             }
 
-        } finally {
-            // 释放 DeepFilterNet 模型资源
-            release();
-        }
+        } 
+        // 移除 finally 块中的 release() 调用，让调用者显式管理资源的释放
+        // finally {
+        //     release();
+        // }
     }
 
     /**
@@ -203,7 +144,7 @@ public class DeepFilterNetProcessor {
      */
     public void release() {
         if (dfState != Pointer.NULL) {
-            DeepFilterNetNativeLib.INSTANCE.df_free(dfState);
+            nativeLib.df_free(dfState);
             dfState = Pointer.NULL;
             System.out.println("DF_LOG: DeepFilterNet 模型资源已释放。");
         }
