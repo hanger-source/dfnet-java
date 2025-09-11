@@ -1,16 +1,17 @@
 package source.hanger;
 
-import javax.sound.sampled.AudioFormat;
-import java.io.IOException;
 import java.io.File;
-import javax.sound.sampled.AudioInputStream;
-import javax.sound.sampled.AudioSystem;
-import javax.sound.sampled.UnsupportedAudioFileException;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
+
+import javax.sound.sampled.AudioFormat;
+import javax.sound.sampled.AudioInputStream;
+import javax.sound.sampled.AudioSystem;
+import javax.sound.sampled.UnsupportedAudioFileException;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -60,10 +61,11 @@ public class RealtimeDenoiseApp {
                 if (bytesRead < buffer.length) {
                     break;
                 }
+                // 创建一个副本以避免并发修改问题，因为 buffer 会被重复使用
+                byte[] bufferCopy = java.util.Arrays.copyOf(buffer, bytesRead);
 
-                audioWriter.onOriginalAudioFrame(buffer, 0, bytesRead);
-
-                streamProcessor.processAudioFrame(buffer);
+                audioWriter.onOriginalAudioFrame(bufferCopy, 0, bytesRead);
+                streamProcessor.processAudioFrame(bufferCopy);
             }
             // 通知 DeepFilterNetStreamProcessor 输入已结束
             streamProcessor.signalEndOfInput();
@@ -138,7 +140,8 @@ public class RealtimeDenoiseApp {
         private final BlockingQueue<byte[]> queue;
         private final AtomicBoolean running = new AtomicBoolean(true);
 
-        public DenoisedAudioWriterThread(AudioFormat format, String denoisedFilePath, BlockingQueue<byte[]> queue) throws IOException {
+        public DenoisedAudioWriterThread(AudioFormat format, String denoisedFilePath, BlockingQueue<byte[]> queue)
+            throws IOException {
             this.denoisedWavWriter = new WavFileWriter(format, denoisedFilePath);
             this.queue = queue;
         }
