@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xmlns="http://maven.apache.org/POM/4.0.0"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
@@ -16,6 +16,8 @@
         <lombok.version>1.18.38</lombok.version> <!-- 使用最新的 Lombok 版本 -->
         <slf4j.version>1.7.32</slf4j.version> <!-- SLF4J API 版本 -->
         <logback.version>1.2.11</logback.version> <!-- Logback 版本 -->
+        <lib.path.os>unknown</lib.path.os> <!-- 默认的操作系统库路径 -->
+        <lib.path.arch>unknown-arch</lib.path.arch> <!-- 默认的架构库路径 -->
     </properties>
 
     <dependencies>
@@ -76,7 +78,7 @@
                     </execution>
                 </executions>
                 <configuration>
-                    <mainClass>source.hanger.RealtimeDenoiseApp</mainClass> <!-- 运行流式示例 -->
+                    <mainClass>source.hanger.demo.RealtimeDenoiseDemo</mainClass> <!-- 运行流式示例 -->
                     <arguments>
                         <!-- 可以将命令行参数传递给主类，例如模型路径 -->
                         <!-- <argument>value</argument> -->
@@ -84,11 +86,56 @@
                     <systemProperties>
                         <systemProperty>
                             <key>jna.library.path</key>
-                            <value>${project.basedir}/lib/${os.name.toLowerCase().startsWith("mac") ? "macos" : os.name.toLowerCase()}-${os.arch.toLowerCase()}</value>
+                            <value>${project.basedir}/lib/${lib.path.os}-${lib.path.arch}</value> <!-- 调整路径结构以匹配 'lib/os-arch' 格式 -->
                         </systemProperty>
                     </systemProperties>
                 </configuration>
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!-- macOS Profile -->
+        <profile>
+            <id>macos</id>
+            <activation>
+                <os>
+                    <family>mac</family>
+                </os>
+            </activation>
+            <properties>
+                <lib.path.os>macos</lib.path.os>
+                <lib.path.arch>${os.arch}</lib.path.arch> <!-- Maven 会自动处理 os.arch 的小写 -->
+            </properties>
+        </profile>
+        <!-- Linux Profile -->
+        <profile>
+            <id>linux</id>
+            <activation>
+                <os>
+                    <family>unix</family>
+                    <name>linux</name>
+                </os>
+            </activation>
+            <properties>
+                <lib.path.os>linux</lib.path.os>
+                <lib.path.arch>${os.arch}</lib.path.arch> <!-- Maven 会自动处理 os.arch 的小写 -->
+            </properties>
+        </profile>
+        <!-- Windows Profile (如果需要) -->
+        <!--
+        <profile>
+            <id>windows</id>
+            <activation>
+                <os>
+                    <family>windows</family>
+                </os>
+            </activation>
+            <properties>
+                <lib.path.os>windows</lib.path.os>
+                <lib.path.arch>${os.arch}</lib.path.arch> // Maven 会自动处理 os.arch 的小写
+            </properties>
+        </profile>
+        -->
+    </profiles>
 </project>

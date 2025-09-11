@@ -1,4 +1,4 @@
-package source.hanger;
+package source.hanger.demo;
 
 import java.io.File;
 import java.io.IOException;
@@ -14,9 +14,11 @@ import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.UnsupportedAudioFileException;
 
 import lombok.extern.slf4j.Slf4j;
+import source.hanger.DeepFilterNetStreamProcessor;
+import source.hanger.WavFileWriter;
 
 @Slf4j
-public class RealtimeDenoiseApp {
+public class RealtimeDenoiseDemo {
 
     private static final BlockingQueue<byte[]> denoisedOutputQueue = new ArrayBlockingQueue<>(500);
 
@@ -30,7 +32,7 @@ public class RealtimeDenoiseApp {
         DeepFilterNetStreamProcessor streamProcessor = null;
         RealtimeAudioWriter audioWriter = null;
         DenoisedAudioWriterThread denoisedWriterThread = null;
-        Thread denoisedWriter = null;
+        Thread denoisedWriter;
 
         try {
             audioInputStream = AudioSystem.getAudioInputStream(new File(inputWavPath));

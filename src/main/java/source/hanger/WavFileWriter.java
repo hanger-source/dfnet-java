@@ -1,10 +1,11 @@
 package source.hanger;
 
-import javax.sound.sampled.AudioFormat;
 import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.io.RandomAccessFile;
+
+import javax.sound.sampled.AudioFormat;
+
 import lombok.extern.slf4j.Slf4j;
 
 /*
@@ -12,17 +13,13 @@ import lombok.extern.slf4j.Slf4j;
  * 它封装了 WAV 文件头生成和更新的逻辑，以及音频数据的写入。
  */
 @Slf4j
-class WavFileWriter implements AutoCloseable, java.io.Flushable {
+public class WavFileWriter implements AutoCloseable, java.io.Flushable {
     private final File outputFile;
     private final OutputStream os;
-    private final AudioFormat format;
     private long bytesWritten = 0;
-    private String filePath; // 添加文件路径字段
 
     public WavFileWriter(AudioFormat format, String filePath) throws IOException {
-        this.filePath = filePath; // 初始化文件路径
         this.outputFile = new File(filePath);
-        this.format = format;
 
         // 确保输出目录存在
         File outputDir = outputFile.getParentFile();
@@ -43,9 +40,9 @@ class WavFileWriter implements AutoCloseable, java.io.Flushable {
         long totalFileSize = 36 + totalAudioDataLength; // 36 bytes for header + data
         try (java.io.RandomAccessFile raf = new java.io.RandomAccessFile(outputFile, "rw")) {
             raf.seek(4); // 跳到 RIFF 文件大小字段
-            raf.writeInt(Integer.reverseBytes((int) (totalFileSize - 8))); // RIFF Chunk Size
+            raf.writeInt(Integer.reverseBytes((int)(totalFileSize - 8))); // RIFF Chunk Size
             raf.seek(40); // 跳到 data sub-chunk size 字段
-            raf.writeInt(Integer.reverseBytes((int) totalAudioDataLength)); // Data Chunk Size
+            raf.writeInt(Integer.reverseBytes((int)totalAudioDataLength)); // Data Chunk Size
         } catch (Exception e) {
             log.error("更新 WAV 文件头失败: {}", e.getMessage(), e);
         }
@@ -65,10 +62,10 @@ class WavFileWriter implements AutoCloseable, java.io.Flushable {
     // 写入 WAV 文件头，数据长度暂时为0
     private void writeWavHeader(OutputStream out, AudioFormat format, long totalAudioLen) throws IOException {
         int channels = format.getChannels();
-        int sampleRate = (int) format.getSampleRate();
+        int sampleRate = (int)format.getSampleRate();
         int bitsPerSample = format.getSampleSizeInBits();
         int bytesPerSample = bitsPerSample / 8;
-        long byteRate = sampleRate * channels * bytesPerSample;
+        long byteRate = (long)sampleRate * channels * bytesPerSample;
         long totalDataLen = totalAudioLen;
         long totalFileSize = 36 + totalDataLen; // 36 bytes for header + data
 
@@ -79,10 +76,10 @@ class WavFileWriter implements AutoCloseable, java.io.Flushable {
         header[2] = 'F';
         header[3] = 'F';
 
-        header[4] = (byte) (totalFileSize & 0xff); // Chunk Size
-        header[5] = (byte) ((totalFileSize >> 8) & 0xff);
-        header[6] = (byte) ((totalFileSize >> 16) & 0xff);
-        header[7] = (byte) ((totalFileSize >> 24) & 0xff);
+        header[4] = (byte)(totalFileSize & 0xff); // Chunk Size
+        header[5] = (byte)((totalFileSize >> 8) & 0xff);
+        header[6] = (byte)((totalFileSize >> 16) & 0xff);
+        header[7] = (byte)((totalFileSize >> 24) & 0xff);
 
         header[8] = 'W';
         header[9] = 'A';
@@ -102,23 +99,23 @@ class WavFileWriter implements AutoCloseable, java.io.Flushable {
         header[20] = 1; // format = 1 (PCM)
         header[21] = 0;
 
-        header[22] = (byte) channels; // channels
+        header[22] = (byte)channels; // channels
         header[23] = 0;
 
-        header[24] = (byte) (sampleRate & 0xff); // Sample Rate
-        header[25] = (byte) ((sampleRate >> 8) & 0xff);
-        header[26] = (byte) ((sampleRate >> 16) & 0xff);
-        header[27] = (byte) ((sampleRate >> 24) & 0xff);
+        header[24] = (byte)(sampleRate & 0xff); // Sample Rate
+        header[25] = (byte)((sampleRate >> 8) & 0xff);
+        header[26] = (byte)((sampleRate >> 16) & 0xff);
+        header[27] = (byte)((sampleRate >> 24) & 0xff);
 
-        header[28] = (byte) (byteRate & 0xff); // Byte Rate
-        header[29] = (byte) ((byteRate >> 8) & 0xff);
-        header[30] = (byte) ((byteRate >> 16) & 0xff);
-        header[31] = (byte) ((byteRate >> 24) & 0xff);
+        header[28] = (byte)(byteRate & 0xff); // Byte Rate
+        header[29] = (byte)((byteRate >> 8) & 0xff);
+        header[30] = (byte)((byteRate >> 16) & 0xff);
+        header[31] = (byte)((byteRate >> 24) & 0xff);
 
-        header[32] = (byte) (channels * bytesPerSample); // Block Align
+        header[32] = (byte)(channels * bytesPerSample); // Block Align
         header[33] = 0;
 
-        header[34] = (byte) bitsPerSample; // Bits per sample
+        header[34] = (byte)bitsPerSample; // Bits per sample
         header[35] = 0;
 
         header[36] = 'd'; // "data" chunk
@@ -126,19 +123,12 @@ class WavFileWriter implements AutoCloseable, java.io.Flushable {
         header[38] = 't';
         header[39] = 'a';
 
-        header[40] = (byte) (totalAudioLen & 0xff); // Data Chunk Size
-        header[41] = (byte) ((totalAudioLen >> 8) & 0xff);
-        header[42] = (byte) ((totalAudioLen >> 16) & 0xff);
-        header[43] = (byte) ((totalAudioLen >> 24) & 0xff);
+        header[40] = (byte)(totalAudioLen & 0xff); // Data Chunk Size
+        header[41] = (byte)((totalAudioLen >> 8) & 0xff);
+        header[42] = (byte)((totalAudioLen >> 16) & 0xff);
+        header[43] = (byte)((totalAudioLen >> 24) & 0xff);
 
         out.write(header, 0, 44);
     }
 
-    public String getFilePath() {
-        return filePath;
-    }
-
-    public long getBytesWritten() {
-        return bytesWritten;
-    }
 }

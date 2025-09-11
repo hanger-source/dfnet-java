@@ -1,4 +1,4 @@
-package source.hanger;
+package source.hanger.demo;
 
 import java.io.IOException;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -13,9 +13,12 @@ import javax.sound.sampled.SourceDataLine;
 import javax.sound.sampled.TargetDataLine;
 
 import lombok.extern.slf4j.Slf4j;
+import source.hanger.DeepFilterNetLibraryInitializer;
+import source.hanger.DeepFilterNetStreamProcessor;
+import source.hanger.WavFileWriter;
 
 @Slf4j
-public class MicrophoneDenoiseApp {
+public class MicrophoneDenoiseDemo {
 
     private static final BlockingQueue<byte[]> denoisedOutputQueue = new ArrayBlockingQueue<>(500);
 
@@ -74,11 +77,9 @@ public class MicrophoneDenoiseApp {
                     Thread.currentThread().interrupt();
                     log.warn("播放线程被中断: {}", e.getMessage());
                 } finally {
-                    if (finalSourceDataLine != null) {
-                        finalSourceDataLine.stop();
-                        finalSourceDataLine.close();
-                        log.info("SourceDataLine 已停止并关闭。");
-                    }
+                    finalSourceDataLine.stop();
+                    finalSourceDataLine.close();
+                    log.info("SourceDataLine 已停止并关闭。");
                 }
             }, "AudioPlaybackThread");
             playbackThread.start();

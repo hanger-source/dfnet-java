@@ -1,8 +1,15 @@
-package source.hanger;
+package source.hanger.demo;
 
 import java.io.File;
+import java.io.IOException;
 
-public class DenoiseWavFile {
+import javax.sound.sampled.UnsupportedAudioFileException;
+
+import lombok.extern.slf4j.Slf4j;
+import source.hanger.DeepFilterNetProcessor;
+
+@Slf4j
+public class WavFileDenoiseDemo {
 
     // 相对路径：模型文件现在位于 dfnet-java 项目的 models 目录下
     private static final String MODEL_RELATIVE_PATH = "models/DeepFilterNet3_onnx.tar.gz";
@@ -21,27 +28,33 @@ public class DenoiseWavFile {
         try {
             // 获取项目根目录，用于构建模型和输入文件的绝对路径
             String projectRoot = new File(".").getAbsolutePath();
-            projectRoot = projectRoot.substring(0, projectRoot.length() - (projectRoot.endsWith(".") ? 1 : 0)); // 移除末尾可能存在的.
+            projectRoot = projectRoot.substring(0,
+                projectRoot.length() - (projectRoot.endsWith(".") ? 1 : 0)); // 移除末尾可能存在的.
             if (!projectRoot.endsWith(File.separator)) {
                 projectRoot += File.separator;
             }
-            
-            String modelAbsolutePath = projectRoot + MODEL_RELATIVE_PATH;
-            String inputWavAbsolutePath = projectRoot + INPUT_WAV_RELATIVE_PATH;
 
-            // 确保输出目录存在
-            File outputDir = new File(OUTPUT_DIR);
-            if (!outputDir.exists()) {
-                outputDir.mkdirs();
-            }
-            String outputWavPath = new File(outputDir, OUTPUT_WAV_NAME).getAbsolutePath();
-
-            DeepFilterNetProcessor processor = new DeepFilterNetProcessor(modelAbsolutePath, 100.0f, "info");
-            processor.denoiseWavFile(inputWavAbsolutePath, outputWavPath);
+            DeepFilterNetProcessor processor = createDeepFilterNetProcessor(projectRoot);
             processor.release(); // 确保释放资源
         } catch (Exception e) {
-            System.err.println("DF_LOG_ERROR: 应用程序执行失败: " + e.getMessage());
-            e.printStackTrace();
+            log.error("DF_LOG_ERROR: 创建 DeepFilterNetProcessor 失败: {}", e.getMessage());
         }
+    }
+
+    private static DeepFilterNetProcessor createDeepFilterNetProcessor(String projectRoot)
+        throws IOException, UnsupportedAudioFileException {
+        String modelAbsolutePath = projectRoot + MODEL_RELATIVE_PATH;
+        String inputWavAbsolutePath = projectRoot + INPUT_WAV_RELATIVE_PATH;
+
+        // 确保输出目录存在
+        File outputDir = new File(OUTPUT_DIR);
+        if (!outputDir.exists()) {
+            outputDir.mkdirs();
+        }
+        String outputWavPath = new File(outputDir, OUTPUT_WAV_NAME).getAbsolutePath();
+
+        DeepFilterNetProcessor processor = new DeepFilterNetProcessor(modelAbsolutePath, 100.0f, "info");
+        processor.denoiseWavFile(inputWavAbsolutePath, outputWavPath);
+        return processor;
     }
 }
