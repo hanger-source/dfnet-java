@@ -40,7 +40,7 @@ public class RealtimeDenoiseApp {
             }
 
             audioWriter = new RealtimeAudioWriter(format, outputOriginalWavPath);
-            streamProcessor = new DeepFilterNetStreamProcessor(modelPath, 100.0f, "trace", format, denoisedOutputQueue, true);
+            streamProcessor = new DeepFilterNetStreamProcessor(modelPath, 100.0f, "trace", format, denoisedOutputQueue);
 
             denoisedWriterThread = new DenoisedAudioWriterThread(format, outputDenoisedWavPath, denoisedOutputQueue);
             denoisedWriter = new Thread(denoisedWriterThread, "DenoisedAudioWriterThread");
@@ -52,6 +52,7 @@ public class RealtimeDenoiseApp {
             ByteBuffer byteBuffer = ByteBuffer.allocate(frameLength * bytesPerFrame);
             byteBuffer.order(format.isBigEndian() ? ByteOrder.BIG_ENDIAN : ByteOrder.LITTLE_ENDIAN);
 
+            // 启动 DeepFilterNetStreamProcessor 的内部处理线程
             streamProcessor.start();
 
             int bytesRead;
@@ -64,6 +65,30 @@ public class RealtimeDenoiseApp {
 
                 streamProcessor.processAudioFrame(buffer);
             }
+            // 通知 DeepFilterNetStreamProcessor 输入已结束
+            streamProcessor.signalEndOfInput();
+
+            // 等待 DeepFilterNetStreamProcessor 完成所有处理
+            while (streamProcessor.isRunning()) {
+                try {
+                    Thread.sleep(100); // 短暂休眠，等待处理完成
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    log.warn("主线程在等待 DeepFilterNetStreamProcessor 完成处理时被中断: {}", e.getMessage());
+                    break;
+                }
+            }
+            log.info("DeepFilterNetStreamProcessor 已完成所有音频帧的处理。");
+
+            // 确保 denoisedWriterThread 在所有降噪数据处理完后才停止
+            denoisedWriterThread.stop(); // 通知写入线程停止
+            try {
+                denoisedWriter.join();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.warn("等待降噪音频写入线程结束时被中断: {}", e.getMessage());
+            }
+
         } catch (Exception e) {
             log.error("实时降噪应用发生错误: {}", e.getMessage(), e);
         } finally {
@@ -75,22 +100,13 @@ public class RealtimeDenoiseApp {
                 }
             }
             if (streamProcessor != null) {
-                streamProcessor.stop();
+                streamProcessor.stop(); // 确保释放 DeepFilterNetStreamProcessor 资源
             }
             if (audioWriter != null) {
                 try {
                     audioWriter.close();
                 } catch (Exception e) {
                     log.error("关闭 WAV 文件写入器失败: {}", e.getMessage(), e);
-                }
-            }
-            if (denoisedWriterThread != null) {
-                denoisedWriterThread.stop();
-                try {
-                    denoisedWriter.join();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    log.warn("等待降噪音频写入线程结束时被中断: {}", e.getMessage());
                 }
             }
         }

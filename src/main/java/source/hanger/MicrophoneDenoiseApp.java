@@ -1,12 +1,18 @@
 package source.hanger;
 
-import lombok.extern.slf4j.Slf4j;
-
-import javax.sound.sampled.*;
 import java.io.IOException;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
+
+import javax.sound.sampled.AudioFormat;
+import javax.sound.sampled.AudioSystem;
+import javax.sound.sampled.DataLine;
+import javax.sound.sampled.LineUnavailableException;
+import javax.sound.sampled.SourceDataLine;
+import javax.sound.sampled.TargetDataLine;
+
+import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public class MicrophoneDenoiseApp {
@@ -18,7 +24,8 @@ public class MicrophoneDenoiseApp {
         String outputOriginalWavPath = "out/microphone_original_audio.wav";
         String outputDenoisedWavPath = "out/microphone_denoised_audio.wav";
 
-        AudioFormat format = new AudioFormat(48000.0f, 16, 1, true, false); // 48kHz, 16-bit, mono, signed, little-endian
+        AudioFormat format = new AudioFormat(48000.0f, 16, 1, true,
+            false); // 48kHz, 16-bit, mono, signed, little-endian
 
         DeepFilterNetStreamProcessor streamProcessor = null;
         RealtimeAudioWriter audioWriter = null;
@@ -33,8 +40,8 @@ public class MicrophoneDenoiseApp {
             DeepFilterNetLibraryInitializer.initializeNativeLibraryPath();
 
             audioWriter = new RealtimeAudioWriter(format, outputOriginalWavPath);
-            // DeepFilterNetStreamProcessor 将自行管理麦克风输入 (isExternalInput = false)
-            streamProcessor = new DeepFilterNetStreamProcessor(modelPath, 100.0f, "trace", format, denoisedOutputQueue, true);
+            // DeepFilterNetStreamProcessor 现在是纯粹的处理器，不管理自己的输入源
+            streamProcessor = new DeepFilterNetStreamProcessor(modelPath, 100.0f, "trace", format, denoisedOutputQueue);
 
             denoisedWriterThread = new DenoisedAudioWriterThread(format, outputDenoisedWavPath, denoisedOutputQueue);
             denoisedWriter = new Thread(denoisedWriterThread, "DenoisedAudioWriterThread");
@@ -46,16 +53,18 @@ public class MicrophoneDenoiseApp {
                 log.error("扬声器输出不支持此音频格式: {}.", format);
                 throw new LineUnavailableException("扬声器输出不支持此音频格式。");
             }
-            sourceDataLine = (SourceDataLine) AudioSystem.getLine(sourceInfo);
+            sourceDataLine = (SourceDataLine)AudioSystem.getLine(sourceInfo);
             sourceDataLine.open(format, streamProcessor.getFrameLength() * format.getFrameSize() * 4); // 缓冲区大小
             sourceDataLine.start();
 
             // 播放线程
             SourceDataLine finalSourceDataLine = sourceDataLine;
-            final DeepFilterNetStreamProcessor finalStreamProcessor = streamProcessor; // 确保 streamProcessor 是有效 final
+            // DeepFilterNetStreamProcessor 不再有 isRunning() 方法，依赖 appRunning
+            DeepFilterNetStreamProcessor finalStreamProcessor = streamProcessor;
             playbackThread = new Thread(() -> {
                 try {
-                    while (finalStreamProcessor.isRunning() || !denoisedOutputQueue.isEmpty()) { // 从 denoisedOutputQueue 获取数据
+                    // 播放线程现在依赖于 streamProcessor 的运行状态和队列是否为空
+                    while (finalStreamProcessor.isRunning() || !denoisedOutputQueue.isEmpty()) {
                         byte[] audioBytes = denoisedOutputQueue.poll(100, java.util.concurrent.TimeUnit.MILLISECONDS);
                         if (audioBytes != null) {
                             finalSourceDataLine.write(audioBytes, 0, audioBytes.length);
@@ -74,8 +83,8 @@ public class MicrophoneDenoiseApp {
             }, "AudioPlaybackThread");
             playbackThread.start();
 
-            // 当 isExternalInput 为 true 时，DeepFilterNetStreamProcessor 不启动内部捕获线程
-            // streamProcessor.start(); // 移除此行
+            // 启动 DeepFilterNetStreamProcessor 的内部处理线程
+            streamProcessor.start();
 
             int frameLength = streamProcessor.getFrameLength();
             int bytesPerFrame = format.getFrameSize();
@@ -90,17 +99,21 @@ public class MicrophoneDenoiseApp {
                     log.error("麦克风输入不支持此音频格式: {}.", format);
                     throw new LineUnavailableException("麦克风输入不支持此音频格式。");
                 }
-                targetDataLine = (TargetDataLine) AudioSystem.getLine(targetInfo);
+                targetDataLine = (TargetDataLine)AudioSystem.getLine(targetInfo);
                 targetDataLine.open(format, frameLength * format.getFrameSize() * 4); // 缓冲区大小
                 targetDataLine.start();
 
-                while (true) { // 持续捕获，直到用户停止
+                // 主线程等待 streamProcessor 停止，而不是 appRunning.get()
+                while (streamProcessor.isRunning()) { // 持续捕获，直到 DeepFilterNetStreamProcessor 停止
                     int bytesRead = targetDataLine.read(buffer, 0, buffer.length);
-                    if (bytesRead > 0) {
-                        // 创建一个副本以避免并发修改问题，因为 buffer 会被重复使用
+                    if (bytesRead == buffer.length) { // 只处理完整帧
                         byte[] bufferCopy = java.util.Arrays.copyOf(buffer, bytesRead);
                         audioWriter.onOriginalAudioFrame(bufferCopy, 0, bytesRead); // 写入原始音频
                         streamProcessor.processAudioFrame(bufferCopy); // 降噪处理
+                    } else if (bytesRead == -1) {
+                        break;
+                    } else if (bytesRead > 0) {
+                        // 捕获到不完整的帧，暂时不处理
                     }
                 }
             } finally {
@@ -111,10 +124,10 @@ public class MicrophoneDenoiseApp {
                 }
             }
 
-
         } catch (Exception e) {
             log.error("麦克风实时降噪应用发生错误: {}", e.getMessage(), e);
         } finally {
+            // appRunning.set(false); // 不再需要，由 streamProcessor 的 running 状态控制
             if (streamProcessor != null) {
                 streamProcessor.stop(); // 确保释放 DeepFilterNetStreamProcessor 资源
             }
@@ -126,7 +139,7 @@ public class MicrophoneDenoiseApp {
                 }
             }
             if (denoisedWriterThread != null) {
-                denoisedWriterThread.stop();
+                denoisedWriterThread.stop(); // 通知写入线程停止
                 try {
                     denoisedWriter.join();
                 } catch (InterruptedException e) {
@@ -135,7 +148,7 @@ public class MicrophoneDenoiseApp {
                 }
             }
             if (playbackThread != null) {
-                playbackThread.interrupt();
+                playbackThread.interrupt(); // 中断播放线程
                 try {
                     playbackThread.join();
                 } catch (InterruptedException e) {
@@ -143,7 +156,7 @@ public class MicrophoneDenoiseApp {
                     log.warn("等待播放线程结束时被中断: {}", e.getMessage());
                 }
             }
-            // 不需要手动关闭 sourceDataLine，因为它在 playbackThread 的 finally 块中处理
+            // sourceDataLine 在 playbackThread 的 finally 块中处理，这里不需要手动关闭
         }
     }
 
@@ -173,7 +186,8 @@ public class MicrophoneDenoiseApp {
         private final BlockingQueue<byte[]> queue;
         private final AtomicBoolean running = new AtomicBoolean(true);
 
-        public DenoisedAudioWriterThread(AudioFormat format, String denoisedFilePath, BlockingQueue<byte[]> queue) throws IOException {
+        public DenoisedAudioWriterThread(AudioFormat format, String denoisedFilePath, BlockingQueue<byte[]> queue)
+            throws IOException {
             this.denoisedWavWriter = new WavFileWriter(format, denoisedFilePath);
             this.queue = queue;
         }
