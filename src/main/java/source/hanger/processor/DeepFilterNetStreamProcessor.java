@@ -29,20 +29,18 @@ public class DeepFilterNetStreamProcessor {
 
     private static final int MSG_TYPE_ID = 1; // Ring Buffer 消息类型 ID
 
-    private final AudioFormat audioFormat;
     private final DfNativeLogThread logThread;
     private final OneToOneRingBuffer ringBuffer; // Agrona Ring Buffer 作为内部输入缓冲区
     private final MutableDirectBuffer tempWriteBuffer; // 用于将传入的 byte[] 包装成 DirectBuffer
-    private final AudioFrameListener denoisedFrameListener; // 用于回调降噪后的音频帧
     private final AtomicBoolean endOfInputSignaled = new AtomicBoolean(false); // 指示外部生产者是否已完成数据输入
     private final OneToOneConcurrentArrayQueue<byte[]> listenerOutputQueue; // Agrona 队列，只用于降噪数据
     @lombok.Getter
     private final int frameLength; // 声明为 final
     private final DeepFilterNetProcessingAgent processingAgent; // 声明为成员变量
     private final DeepFilterNetListenerAgent listenerAgent;   // 声明为成员变量
-    private volatile AgentRunner processingAgentRunner;
-    private volatile AgentRunner listenerAgentRunner;
-    private DeepFilterNetNativeLib nativeLib;
+    private final AgentRunner processingAgentRunner;
+    private final AgentRunner listenerAgentRunner;
+    private final DeepFilterNetNativeLib nativeLib;
     private Pointer dfState;
 
     public DeepFilterNetStreamProcessor(
@@ -53,14 +51,13 @@ public class DeepFilterNetStreamProcessor {
         AudioFrameListener denoisedFrameListener,
         int ringBufferCapacity,
         int listenerQueueCapacity) {
-        this.audioFormat = audioFormat;
         this.nativeLib = DeepFilterNetLibraryInitializer.getNativeLibraryInstance();
         this.dfState = nativeLib.df_create(modelPath, attenLim, logLevel); // 修正 df_create 参数
         if (this.dfState == null || Pointer.nativeValue(this.dfState) == 0) {
             throw new IllegalStateException("DF_LOG_ERROR: 无法创建 DeepFilterNet 状态。");
         }
         this.frameLength = nativeLib.df_get_frame_length(dfState); // 从原生库获取帧长度
-        this.denoisedFrameListener = denoisedFrameListener;
+        // 用于回调降噪后的音频帧
 
         // log.info("DeepFilterNetStreamProcessor 正在初始化...");
 
@@ -90,7 +87,7 @@ public class DeepFilterNetStreamProcessor {
         final IdleStrategy idleStrategy = new SleepingIdleStrategy(1); // 避免 CPU 忙等
 
         this.processingAgent = new DeepFilterNetProcessingAgent(
-            this.audioFormat,
+            audioFormat,
             this.nativeLib,
             this.dfState,
             this.frameLength,
@@ -100,7 +97,7 @@ public class DeepFilterNetStreamProcessor {
         );
 
         this.listenerAgent = new DeepFilterNetListenerAgent(
-            this.denoisedFrameListener,
+            denoisedFrameListener,
             this.listenerOutputQueue,
             this.endOfInputSignaled,
             this.ringBuffer
@@ -179,7 +176,6 @@ public class DeepFilterNetStreamProcessor {
                 Thread.yield(); // 如果 Ring Buffer 满，短暂让出 CPU
             }
             if (endOfInputSignaled.get()) { // 如果在等待过程中生产者完成，则退出
-                // log.info("DF_ACCUM_DIAG: processAudioFrame: 生产者在写入RingBuffer时完成，停止写入。");
                 return false;
             }
             offset += bytesToWrite;
