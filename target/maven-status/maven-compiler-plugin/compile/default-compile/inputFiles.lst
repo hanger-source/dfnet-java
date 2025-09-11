@@ -2,6 +2,8 @@
 /Users/hanger/dfnet-java/src/main/java/source/hanger/RealtimeDenoiseApp.java
 /Users/hanger/dfnet-java/src/main/java/source/hanger/DeepFilterNetProcessor.java
 /Users/hanger/dfnet-java/src/main/java/source/hanger/DeepFilterNetLibraryInitializer.java
+/Users/hanger/dfnet-java/src/main/java/source/hanger/AudioFrameListener.java
 /Users/hanger/dfnet-java/src/main/java/source/hanger/DeepFilterNetNativeLib.java
+/Users/hanger/dfnet-java/src/main/java/source/hanger/WavFileWriter.java
 /Users/hanger/dfnet-java/src/main/java/source/hanger/DfNativeLogThread.java
 /Users/hanger/dfnet-java/src/main/java/source/hanger/DeepFilterNetStreamProcessor.java

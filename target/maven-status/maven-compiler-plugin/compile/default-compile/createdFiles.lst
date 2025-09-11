@@ -1,8 +1,11 @@
 source/hanger/RealtimeDenoiseApp.class
-source/hanger/DeepFilterNetProcessor$AudioOutputStream.class
+source/hanger/RealtimeDenoiseApp$DenoisedAudioWriterThread.class
 source/hanger/DfNativeLogThread.class
 source/hanger/DeepFilterNetStreamProcessor.class
 source/hanger/DenoiseWavFile.class
 source/hanger/DeepFilterNetProcessor.class
+source/hanger/WavFileWriter.class
+source/hanger/AudioFrameListener.class
 source/hanger/DeepFilterNetNativeLib.class
+source/hanger/RealtimeDenoiseApp$RealtimeAudioWriter.class
 source/hanger/DeepFilterNetLibraryInitializer.class

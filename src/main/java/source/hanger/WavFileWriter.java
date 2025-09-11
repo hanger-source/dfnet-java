@@ -15,9 +15,11 @@ class WavFileWriter implements AutoCloseable, java.io.Flushable {
     private final OutputStream os;
     private final AudioFormat format;
     private long bytesWritten = 0;
+    private String filePath; // 添加文件路径字段
 
-    public WavFileWriter(AudioFormat format, String outputFilePath) throws IOException {
-        this.outputFile = new File(outputFilePath);
+    public WavFileWriter(AudioFormat format, String filePath) throws IOException {
+        this.filePath = filePath; // 初始化文件路径
+        this.outputFile = new File(filePath);
         this.format = format;
 
         // 确保输出目录存在
@@ -29,7 +31,6 @@ class WavFileWriter implements AutoCloseable, java.io.Flushable {
         this.os = new java.io.FileOutputStream(outputFile); // 创建实际的FileOutputStream
         // 写入 WAV 文件头，稍后会更新数据大小
         writeWavHeader(os, format, 0); // 暂时写入0，后续需要更新
-        System.out.println("DF_LOG: WAV 文件写入器已创建，文件路径: " + outputFilePath);
     }
 
     @Override
@@ -44,10 +45,10 @@ class WavFileWriter implements AutoCloseable, java.io.Flushable {
             raf.seek(40); // 跳到 data sub-chunk size 字段
             raf.writeInt(Integer.reverseBytes((int) totalAudioDataLength)); // Data Chunk Size
         } catch (Exception e) {
-            System.err.println("DF_LOG_ERROR: 无法更新 WAV 文件头: " + e.getMessage());
+            // 仅在发生错误时打印堆栈跟踪，不打印常规错误消息
+            e.printStackTrace();
         }
         os.close();
-        System.out.println("DF_LOG: WAV 文件写入器已关闭，文件路径: " + outputFile.getAbsolutePath() + ", 写入字节数: " + bytesWritten);
     }
 
     @Override
@@ -58,11 +59,6 @@ class WavFileWriter implements AutoCloseable, java.io.Flushable {
     public void write(byte[] b, int off, int len) throws IOException {
         os.write(b, off, len);
         bytesWritten += len;
-    }
-
-    public void write(byte[] b) throws IOException {
-        os.write(b);
-        bytesWritten += b.length;
     }
 
     // 写入 WAV 文件头，数据长度暂时为0
@@ -135,5 +131,13 @@ class WavFileWriter implements AutoCloseable, java.io.Flushable {
         header[43] = (byte) ((totalAudioLen >> 24) & 0xff);
 
         out.write(header, 0, 44);
+    }
+
+    public String getFilePath() {
+        return filePath;
+    }
+
+    public long getBytesWritten() {
+        return bytesWritten;
     }
 }
