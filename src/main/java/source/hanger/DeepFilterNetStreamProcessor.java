@@ -1,6 +1,9 @@
 package source.hanger;
 
 import com.sun.jna.Pointer;
+import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
+
 import javax.sound.sampled.*;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -8,20 +11,24 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+@Slf4j
 public class DeepFilterNetStreamProcessor {
 
-    private DeepFilterNetNativeLib nativeLib;
+    private final DeepFilterNetNativeLib nativeLib;
     private Pointer dfState;
-    private int frameLength;
-    private AudioFormat audioFormat;
-    private DfNativeLogThread logThread;
-    private String logLevel;
+    @Getter
+    private final int frameLength;
+    private final AudioFormat audioFormat;
+    private final DfNativeLogThread logThread;
 
     private TargetDataLine targetDataLine;
     private final BlockingQueue<byte[]> denoisedOutputQueue;
-    private AtomicBoolean running = new AtomicBoolean(false);
+    private final AtomicBoolean running = new AtomicBoolean(false);
     private Thread captureThread;
-    private boolean isExternalInput;
+    private final boolean isExternalInput;
+
+    private final ByteBuffer internalByteBuffer; // 用于 byte[] 到 float[] 转换的内部 ByteBuffer
+    private final float[] internalInputFloats;   // 用于 byte[] 到 float[] 转换的内部 float[]
 
     public DeepFilterNetStreamProcessor(String modelPath, float attenLim, String logLevel, AudioFormat audioFormat,
                                         BlockingQueue<byte[]> denoisedOutputQueue,
@@ -32,12 +39,12 @@ public class DeepFilterNetStreamProcessor {
         }
         this.audioFormat = audioFormat;
         this.denoisedOutputQueue = denoisedOutputQueue;
-        this.logLevel = logLevel;
         this.isExternalInput = isExternalInput;
 
         this.nativeLib = DeepFilterNetLibraryInitializer.getNativeLibraryInstance();
         this.dfState = nativeLib.df_create(modelPath, attenLim, logLevel);
         if (dfState == Pointer.NULL) {
+            log.error("无法创建 DeepFilterNet 模型。请检查模型路径或日志。");
             throw new RuntimeException("无法创建 DeepFilterNet 模型。请检查模型路径或日志。");
         }
         this.logThread = new DfNativeLogThread(dfState);
@@ -47,10 +54,16 @@ public class DeepFilterNetStreamProcessor {
         if (!isExternalInput) {
             DataLine.Info targetInfo = new DataLine.Info(TargetDataLine.class, audioFormat);
             if (!AudioSystem.isLineSupported(targetInfo)) {
+                log.error("麦克风输入不支持此音频格式: {}.", audioFormat);
                 throw new LineUnavailableException("麦克风输入不支持此音频格式。");
             }
             targetDataLine = (TargetDataLine) AudioSystem.getLine(targetInfo);
         }
+
+        // 初始化内部转换缓冲区和数组
+        this.internalByteBuffer = ByteBuffer.allocate(frameLength * audioFormat.getFrameSize());
+        this.internalByteBuffer.order(audioFormat.isBigEndian() ? ByteOrder.BIG_ENDIAN : ByteOrder.LITTLE_ENDIAN);
+        this.internalInputFloats = new float[frameLength];
     }
 
     public void start() throws LineUnavailableException {
@@ -77,6 +90,7 @@ public class DeepFilterNetStreamProcessor {
                 if (captureThread != null) captureThread.join();
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
+                log.warn("捕获线程在停止时被中断: {}", e.getMessage());
             }
             release();
         }
@@ -88,9 +102,9 @@ public class DeepFilterNetStreamProcessor {
         }
         int bytesPerFrame = audioFormat.getFrameSize();
         byte[] buffer = new byte[frameLength * bytesPerFrame];
-        float[] floatBuffer = new float[frameLength];
         ByteBuffer byteBuffer = ByteBuffer.allocate(frameLength * bytesPerFrame);
         byteBuffer.order(audioFormat.isBigEndian() ? ByteOrder.BIG_ENDIAN : ByteOrder.LITTLE_ENDIAN);
+        float[] floatBuffer = new float[frameLength]; // 此处 floatBuffer 仅用于 captureAudio 内部
         while (running.get()) {
             try {
                 int bytesRead = targetDataLine.read(buffer, 0, buffer.length);
@@ -101,10 +115,12 @@ public class DeepFilterNetStreamProcessor {
                     for (int i = 0; i < frameLength; i++) {
                         floatBuffer[i] = byteBuffer.getShort(i * 2) / 32768.0f;
                     }
+                    // 暂时不做任何处理，因为 DeepFilterNetStreamProcessor 是同步处理
                 } else if (bytesRead == -1) {
                     break;
                 }
             } catch (Exception e) {
+                log.error("捕获音频时发生错误: {}", e.getMessage(), e);
             }
         }
     }
@@ -120,17 +136,22 @@ public class DeepFilterNetStreamProcessor {
                 logThread.join();
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
+                log.warn("日志线程在释放时被中断: {}", e.getMessage());
             }
         }
     }
 
-    public int getFrameLength() {
-        return frameLength;
-    }
+    public boolean processAudioFrame(byte[] inputBytes) {
+        // 将 byte[] 转换为 float[]
+        internalByteBuffer.clear();
+        internalByteBuffer.put(inputBytes);
+        internalByteBuffer.flip();
+        for (int i = 0; i < frameLength; i++) {
+            internalInputFloats[i] = internalByteBuffer.getShort(i * 2) / 32768.0f;
+        }
 
-    public boolean processAudioFrame(float[] inputFloats) {
         float[] outputFloats = new float[frameLength];
-        nativeLib.df_process_frame(dfState, inputFloats, outputFloats);
+        nativeLib.df_process_frame(dfState, internalInputFloats, outputFloats);
 
         ByteBuffer byteBuffer = ByteBuffer.allocate(frameLength * audioFormat.getFrameSize());
         byteBuffer.order(audioFormat.isBigEndian() ? ByteOrder.BIG_ENDIAN : ByteOrder.LITTLE_ENDIAN);
@@ -145,7 +166,8 @@ public class DeepFilterNetStreamProcessor {
             return denoisedOutputQueue.offer(processedBytes, 100, java.util.concurrent.TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return false; // Return false if interrupted
+            log.warn("降噪输出队列中断: {}", e.getMessage());
+            return false;
         }
     }
 }

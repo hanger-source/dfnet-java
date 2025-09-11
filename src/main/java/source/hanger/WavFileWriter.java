@@ -5,11 +5,13 @@ import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.RandomAccessFile;
+import lombok.extern.slf4j.Slf4j;
 
 /*
  * `WavFileWriter` 是一个包级私有（package-private）的工具类，用于处理 WAV 文件的写入。
  * 它封装了 WAV 文件头生成和更新的逻辑，以及音频数据的写入。
  */
+@Slf4j
 class WavFileWriter implements AutoCloseable, java.io.Flushable {
     private final File outputFile;
     private final OutputStream os;
@@ -45,8 +47,7 @@ class WavFileWriter implements AutoCloseable, java.io.Flushable {
             raf.seek(40); // 跳到 data sub-chunk size 字段
             raf.writeInt(Integer.reverseBytes((int) totalAudioDataLength)); // Data Chunk Size
         } catch (Exception e) {
-            // 仅在发生错误时打印堆栈跟踪，不打印常规错误消息
-            e.printStackTrace();
+            log.error("更新 WAV 文件头失败: {}", e.getMessage(), e);
         }
         os.close();
     }

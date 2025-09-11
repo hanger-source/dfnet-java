@@ -12,9 +12,12 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import lombok.extern.slf4j.Slf4j;
+
+@Slf4j
 public class RealtimeDenoiseApp {
 
-    private static BlockingQueue<byte[]> denoisedOutputQueue = new ArrayBlockingQueue<>(500);
+    private static final BlockingQueue<byte[]> denoisedOutputQueue = new ArrayBlockingQueue<>(500);
 
     public static void main(String[] args) {
         String modelPath = "models/DeepFilterNet3_onnx.tar.gz";
@@ -46,7 +49,6 @@ public class RealtimeDenoiseApp {
             int frameLength = streamProcessor.getFrameLength();
             int bytesPerFrame = format.getFrameSize();
             byte[] buffer = new byte[frameLength * bytesPerFrame];
-            float[] floatBuffer = new float[frameLength];
             ByteBuffer byteBuffer = ByteBuffer.allocate(frameLength * bytesPerFrame);
             byteBuffer.order(format.isBigEndian() ? ByteOrder.BIG_ENDIAN : ByteOrder.LITTLE_ENDIAN);
 
@@ -60,23 +62,16 @@ public class RealtimeDenoiseApp {
 
                 audioWriter.onOriginalAudioFrame(buffer, 0, bytesRead);
 
-                byteBuffer.clear();
-                byteBuffer.put(buffer);
-                byteBuffer.flip();
-                for (int i = 0; i < frameLength; i++) {
-                    floatBuffer[i] = byteBuffer.getShort(i * 2) / 32768.0f;
-                }
-                streamProcessor.processAudioFrame(floatBuffer);
+                streamProcessor.processAudioFrame(buffer);
             }
         } catch (Exception e) {
-            System.err.println("实时降噪应用发生错误: " + e.getMessage());
-            e.printStackTrace();
+            log.error("实时降噪应用发生错误: {}", e.getMessage(), e);
         } finally {
             if (audioInputStream != null) {
                 try {
                     audioInputStream.close();
                 } catch (IOException e) {
-                    System.err.println("关闭音频输入流失败: " + e.getMessage());
+                    log.error("关闭音频输入流失败: {}", e.getMessage(), e);
                 }
             }
             if (streamProcessor != null) {
@@ -86,7 +81,7 @@ public class RealtimeDenoiseApp {
                 try {
                     audioWriter.close();
                 } catch (Exception e) {
-                    System.err.println("关闭 WAV 文件写入器失败: " + e.getMessage());
+                    log.error("关闭 WAV 文件写入器失败: {}", e.getMessage(), e);
                 }
             }
             if (denoisedWriterThread != null) {
@@ -95,7 +90,7 @@ public class RealtimeDenoiseApp {
                     denoisedWriter.join();
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
-                    System.err.println("等待降噪音频写入线程结束时被中断: " + e.getMessage());
+                    log.warn("等待降噪音频写入线程结束时被中断: {}", e.getMessage());
                 }
             }
         }
@@ -112,8 +107,7 @@ public class RealtimeDenoiseApp {
             try {
                 originalWavWriter.write(audioBytes, offset, length);
             } catch (IOException e) {
-                System.err.println("写入原始音频文件失败: " + e.getMessage());
-                e.printStackTrace();
+                log.error("写入原始音频文件失败: {}", e.getMessage(), e);
             }
         }
 
@@ -144,15 +138,14 @@ public class RealtimeDenoiseApp {
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
+                log.warn("DenoisedAudioWriterThread 写入线程中断: {}", e.getMessage());
             } catch (IOException e) {
-                System.err.println("DenoisedAudioWriterThread 写入降噪音频文件失败: " + e.getMessage());
-                e.printStackTrace();
+                log.error("DenoisedAudioWriterThread 写入降噪音频文件失败: {}", e.getMessage(), e);
             } finally {
                 try {
                     close();
                 } catch (Exception e) {
-                    System.err.println("DenoisedAudioWriterThread 关闭文件写入器失败: " + e.getMessage());
-                    e.printStackTrace();
+                    log.error("DenoisedAudioWriterThread 关闭文件写入器失败: {}", e.getMessage(), e);
                 }
             }
         }

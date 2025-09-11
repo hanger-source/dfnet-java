@@ -1,20 +1,22 @@
 package source.hanger;
 
 import com.sun.jna.Pointer;
+import lombok.extern.slf4j.Slf4j;
+
 import javax.sound.sampled.*;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
+@Slf4j
 public class DeepFilterNetProcessor {
 
-    private DeepFilterNetNativeLib nativeLib;
+    private final DeepFilterNetNativeLib nativeLib;
     private Pointer dfState;
-    private int frameLength;
-    private AudioFormat audioFormat;
+    private final int frameLength;
 
-    private DfNativeLogThread logThread;
+    private final DfNativeLogThread logThread;
 
     /**
      * DeepFilterNetProcessor 构造函数，初始化模型。
@@ -64,7 +66,7 @@ public class DeepFilterNetProcessor {
         }
 
         try (AudioInputStream audioInputStream = AudioSystem.getAudioInputStream(inputFile)) {
-            audioFormat = audioInputStream.getFormat();
+            AudioFormat audioFormat = audioInputStream.getFormat();
             System.out.println("DF_LOG: 输入音频格式: " + audioFormat.toString());
 
             if (audioFormat.getChannels() != 1) {
