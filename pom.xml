@@ -94,8 +94,8 @@
                     <systemProperties>
                         <systemProperty>
                             <key>jna.library.path</key>
-                            <value>${project.basedir}/lib/${lib.path.os}-${lib.path.arch}
-                            </value> <!-- 调整路径结构以匹配 'lib/os-arch' 格式 -->
+                            <value>${project.basedir}/lib/${lib.path.os}/${lib.path.arch}
+                            </value> <!-- 调整路径结构以匹配 'lib/os/arch' 格式 -->
                         </systemProperty>
                     </systemProperties>
                 </configuration>

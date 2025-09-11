@@ -26,7 +26,10 @@ public class DeepFilterNetLibraryInitializer {
                 osName = "macos";
             }
             String osArch = System.getProperty("os.arch").toLowerCase();
-            String nativeLibPath = projectRoot + "lib" + File.separator + osName + "-" + osArch;
+            if (osName.contains("linux") && "amd64".equals(osArch)) {
+                osArch = "x86_64";
+            }
+            String nativeLibPath = projectRoot + "lib" + File.separator + osName + File.separator + osArch;
 
             System.setProperty("jna.library.path", nativeLibPath);
             System.out.println("DF_LOG: JNA library path set from DeepFilterNetLibraryInitializer: " + nativeLibPath);
