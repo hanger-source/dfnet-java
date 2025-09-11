@@ -7,7 +7,6 @@ import lombok.extern.slf4j.Slf4j;
 import javax.sound.sampled.*;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -61,7 +60,7 @@ public class DeepFilterNetStreamProcessor {
         }
 
         // 初始化内部转换缓冲区和数组
-        this.internalByteBuffer = ByteBuffer.allocate(frameLength * audioFormat.getFrameSize());
+        this.internalByteBuffer = ByteBuffer.allocateDirect(frameLength * audioFormat.getFrameSize());
         this.internalByteBuffer.order(audioFormat.isBigEndian() ? ByteOrder.BIG_ENDIAN : ByteOrder.LITTLE_ENDIAN);
         this.internalInputFloats = new float[frameLength];
     }
