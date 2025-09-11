@@ -9,8 +9,8 @@
     <version>1.0-SNAPSHOT</version>
 
     <properties>
-        <maven.compiler.source>11</maven.compiler.source> <!-- 兼容性考虑，使用Java 11 -->
-        <maven.compiler.target>11</maven.compiler.target>
+        <maven.compiler.source>21</maven.compiler.source> <!-- 兼容性考虑，使用Java 21 -->
+        <maven.compiler.target>21</maven.compiler.target>
         <jna.version>5.14.0</jna.version> <!-- JNA 版本 -->
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <lombok.version>1.18.38</lombok.version> <!-- 使用最新的 Lombok 版本 -->
