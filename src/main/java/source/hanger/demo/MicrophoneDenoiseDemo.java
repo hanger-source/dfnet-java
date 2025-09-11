@@ -26,16 +26,14 @@ public class MicrophoneDenoiseDemo {
             false); // 48kHz, 16-bit, mono, signed, little-endian
 
         DeepFilterNetStreamProcessor streamProcessor = null;
-        WavFileWriter originalWavWriter = null;
-        DenoisedFrameMultiplexer denoisedFrameMultiplexer = null;
+        CombinedAudioFrameWriter combinedAudioFrameWriter = null; // 使用 CombinedAudioFrameWriter
 
         try {
             // 确保本地库路径已初始化
             DeepFilterNetLibraryInitializer.initializeNativeLibraryPath();
 
-            originalWavWriter = new WavFileWriter(format, outputOriginalWavPath);
-            denoisedFrameMultiplexer = new DenoisedFrameMultiplexer(format, outputDenoisedWavPath);
-            streamProcessor = new DeepFilterNetStreamProcessor(format, modelPath, 100.0f, "trace", denoisedFrameMultiplexer, 8192, 500); // 修正构造函数参数
+            combinedAudioFrameWriter = new CombinedAudioFrameWriter(format, outputOriginalWavPath, outputDenoisedWavPath);
+            streamProcessor = new DeepFilterNetStreamProcessor(format, modelPath, 100.0f, "trace", combinedAudioFrameWriter, 8192, 500); // 修正构造函数参数
 
             // 启动 DeepFilterNetStreamProcessor 的内部处理线程
             streamProcessor.start();
@@ -59,7 +57,7 @@ public class MicrophoneDenoiseDemo {
             // 麦克风捕获循环现在使用虚拟线程
             TargetDataLine finalTargetDataLine = targetDataLine;
             DeepFilterNetStreamProcessor finalStreamProcessor = streamProcessor;
-            WavFileWriter finalOriginalWavWriter = originalWavWriter;
+            CombinedAudioFrameWriter finalCombinedAudioFrameWriter = combinedAudioFrameWriter;
 
             Thread captureVirtualThread = Thread.ofVirtual().name("MicCaptureVirtualThread").start(() -> {
                 try {
@@ -67,7 +65,7 @@ public class MicrophoneDenoiseDemo {
                         int bytesRead = finalTargetDataLine.read(buffer, 0, buffer.length);
                         if (bytesRead == buffer.length) { // 只处理完整帧
                             byte[] bufferCopy = java.util.Arrays.copyOf(buffer, bytesRead);
-                            finalOriginalWavWriter.onOriginalAudioFrame(bufferCopy, 0, bytesRead); // 写入原始音频
+                            finalCombinedAudioFrameWriter.onOriginalAudioFrame(bufferCopy, 0, bytesRead); // 写入原始音频
                             finalStreamProcessor.processAudioFrame(bufferCopy); // 降噪处理
                         } else if (bytesRead == -1) {
                             break;
@@ -110,50 +108,13 @@ public class MicrophoneDenoiseDemo {
                 streamProcessor.stop(); // 确保释放 DeepFilterNetStreamProcessor 资源
             }
             try {
-                if (originalWavWriter != null) {
-                    originalWavWriter.close();
-                }
-                if (denoisedFrameMultiplexer != null) {
-                    denoisedFrameMultiplexer.close();
+                if (combinedAudioFrameWriter != null) {
+                    combinedAudioFrameWriter.close();
                 }
             } catch (Exception e) {
-                log.error("关闭 WAV 文件写入器失败: {}", e.getMessage(), e);
+                log.error("关闭 CombinedAudioFrameWriter 失败: {}", e.getMessage(), e);
             }
         }
     }
 
-    /**
-     * `DenoisedFrameMultiplexer` 类实现 `AudioFrameListener` 接口，
-     * 用于接收降噪后的音频帧，并将其同时转发给 `WavFileWriter` 进行文件写入
-     * 和 `BlockingQueue` 进行实时播放。
-     */
-    private static class DenoisedFrameMultiplexer implements AudioFrameListener, AutoCloseable {
-        private final WavFileWriter denoisedWavWriter;
-
-        public DenoisedFrameMultiplexer(AudioFormat format, String denoisedFilePath)
-            throws IOException {
-            this.denoisedWavWriter = new WavFileWriter(format, denoisedFilePath);
-        }
-
-        @Override
-        public void onOriginalAudioFrame(byte[] audioBytes, int offset, int length) {
-            // 这个方法在此处不使用，因为 multiplexer 只处理降噪后的帧
-            // 原始帧由 MicrophoneDenoiseDemo 的主线程直接处理
-        }
-
-        @Override
-        public void onDenoisedAudioFrame(byte[] audioBytes, int offset, int length) {
-            try {
-                // 写入 WAV 文件
-                denoisedWavWriter.write(audioBytes, offset, length);
-            } catch (IOException e) {
-                log.error("DenoisedFrameMultiplexer 写入降噪音频帧失败: {}", e.getMessage(), e);
-            }
-        }
-
-        @Override
-        public void close() throws Exception {
-            denoisedWavWriter.close();
-        }
-    }
 }
