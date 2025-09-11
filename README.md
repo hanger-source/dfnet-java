@@ -11,7 +11,7 @@
 
 ## 🚀 系统要求
 
-*   **Java Development Kit (JDK):** 11 或更高版本。
+*   **Java Development Kit (JDK):** 21 或更高版本。
 *   **Apache Maven:** 3.6.0 或更高版本。
 *   **Rust 编程语言环境 (用于编译 `libdf`):** 如果你需要在本地编译 `libdf` (DeepFilterNet 的 Rust 核心库)，则需要安装 Rust。
     *   推荐使用 `rustup` 进行安装：`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`。
@@ -27,11 +27,17 @@
 ├── src/
 │   └── main/
 │       └── java/
-│           └── com/
-│               └── dfnet/
+│           └── source/
+│               └── hanger/
+│                   ├── demo/
+│                   │   ├── MicrophoneDenoiseDemo.java
+│                   │   ├── RealtimeDenoiseDemo.java
+│                   │   └── WavFileDenoiseDemo.java
 │                   ├── DeepFilterNetNativeLib.java
 │                   ├── DeepFilterNetProcessor.java
-│                   └── DenoiseWavFile.java (示例)
+│                   ├── DeepFilterNetStreamProcessor.java
+│                   ├── DfNativeLogThread.java
+│                   └── WavFileWriter.java
 ├── lib/                        # 存放编译好的本地库，例如:
 │   ├── macos-aarch64/
 │   │   └── libdf.dylib
@@ -87,58 +93,52 @@
 
 ## 💡 使用示例
 
-`dfnet-java` 提供了一个 `DeepFilterNetProcessor` 类，你可以通过以下方式在你的 Java 应用程序中使用它：
+`dfnet-java` 提供了一系列示例来展示库的使用。这些示例位于 `src/main/java/source/hanger/demo/` 目录下。
 
-```java
-// ... (省略导入和类定义)
+### 1. `WavFileDenoiseDemo.java` (WAV 文件降噪示例)
+这个示例展示了如何从一个 WAV 文件读取音频，进行降噪处理，并将降噪前后的音频写入新的 WAV 文件。
 
-public class YourApplication {
-    public static void main(String[] args) {
-        // 1. 设置 JNA 本地库路径
-        // 确保 jna.library.path 系统属性指向你平台特定的 libdf.dylib/.so 所在的目录
-        // 例如：System.setProperty("jna.library.path", "/path/to/dfnet-java/lib/macos-aarch64");
-        // 或者通过 Maven 的 exec 插件配置 (详见 pom.xml)
-
-        // 2. 定义模型和音频文件路径 (相对于你的应用程序的当前工作目录)
-        String modelPath = "models/DeepFilterNet3_onnx.tar.gz";
-        String inputWavPath = "data/speech_with_noise_48k.wav";
-        String outputWavPath = "out/speech_with_noise_48k_denoised.wav";
-
-        DeepFilterNetProcessor processor = null;
-        try {
-            // 3. 初始化 DeepFilterNetProcessor
-            processor = new DeepFilterNetProcessor(modelPath, 100.0f, "info");
-
-            // 4. 处理 WAV 文件
-            processor.denoiseWavFile(inputWavPath, outputWavPath);
-
-            System.out.println("降噪完成！输出文件: " + outputWavPath);
-
-        } catch (Exception e) {
-            System.err.println("处理过程中发生错误: " + e.getMessage());
-            e.printStackTrace();
-        } finally {
-            // 5. 释放资源
-            if (processor != null) {
-                processor.release();
-            }
-        }
-    }
-}
-```
-
-运行 `DenoiseWavFile.java` 示例：
-
+**运行方式：**
 1.  确保你已按照上述步骤编译 `libdf` 并将其复制到正确位置。
 2.  确保模型文件 (`models/DeepFilterNet3_onnx.tar.gz`) 和输入 WAV 文件 (`data/speech_with_noise_48k.wav`) 位于 `dfnet-java` 项目的相应子目录。
 3.  进入 `dfnet-java` 项目目录：`cd dfnet-java`
-4.  运行示例：`mvn exec:java`
+4.  运行示例：
+    ```bash
+    mvn exec:java -Dexec.mainClass="source.hanger.demo.WavFileDenoiseDemo"
+    ```
+    这将会输出 `out/original_audio.wav` 和 `out/denoised_audio.wav` 文件。
+
+### 2. `RealtimeDenoiseDemo.java` (模拟实时流降噪示例)
+这个示例模拟了从文件读取音频流进行实时降噪，并将其写入 WAV 文件。
+
+**运行方式：**
+1.  确保你已按照上述步骤编译 `libdf` 并将其复制到正确位置。
+2.  确保模型文件 (`models/DeepFilterNet3_onnx.tar.gz`) 和输入 WAV 文件 (`data/speech_with_noise_48k.wav`) 位于 `dfnet-java` 项目的相应子目录。
+3.  进入 `dfnet-java` 项目目录：`cd dfnet-java`
+4.  运行示例：
+    ```bash
+    mvn exec:java -Dexec.mainClass="source.hanger.demo.RealtimeDenoiseDemo"
+    ```
+    这将会输出 `out/original_audio_stream.wav` 和 `out/denoised_audio_stream.wav` 文件。
+
+### 3. `MicrophoneDenoiseDemo.java` (实时麦克风降噪示例)
+这个示例展示了如何从麦克风捕获实时音频，进行降噪处理，并实时播放降噪后的音频。
+
+**运行方式：**
+1.  确保你已按照上述步骤编译 `libdf` 并将其复制到正确位置。
+2.  确保模型文件 (`models/DeepFilterNet3_onnx.tar.gz`) 位于 `dfnet-java` 项目的相应子目录。
+3.  进入 `dfnet-java` 项目目录：`cd dfnet-java`
+4.  运行示例：
+    ```bash
+    mvn exec:java -Dexec.mainClass="source.hanger.demo.MicrophoneDenoiseDemo"
+    ```
+    按下 `Ctrl+C` 停止程序。
 
 ## ⁉️ 故障排除
 
 *   **`java.lang.UnsatisfiedLinkError: Unable to load library 'df'`：**
     *   **原因：** JNA 无法找到 `libdf.dylib` (macOS) 或 `libdf.so` (Linux)。
-    *   **解决方案：** 确保 `libdf` 已编译，并将其复制到 `dfnet-java/lib/<os>-<arch>/` 目录下。同时，检查 `pom.xml` 中 `jna.library.path` 的配置是否正确指向该目录。
+    *   **解决方案：** 确保 `libdf` 已编译，并将其复制到 `dfnet-java/lib/<os>-<arch>/` 目录下。同时，检查 `pom.xml` 中 `jna.library.path` 的配置是否正确指向该目录 (通过 Maven Profiles 配置 `lib.path.os` 和 `lib.path.arch` 属性)。
 *   **Rust `panic` (例如 `not yet implemented`)：**
     *   **原因：** 通常是 DeepFilterNet 模型版本与 `libdf` 所依赖的 `tract` 库版本不兼容。
     *   **解决方案：** 确保你使用的是 `DeepFilterNet3_onnx.tar.gz` 模型。如果问题仍然存在，可能需要升级 `DeepFilterNet` 官方仓库中的 `tract` 依赖并重新编译 `libdf`。
