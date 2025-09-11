@@ -66,18 +66,18 @@
 
 一旦编译完成，你需要将编译好的 `libdf` 库复制到 `dfnet-java` 项目的 `lib` 目录中对应的平台子目录：
 
-*   **macOS (ARM):** 将 `libdf.dylib` 复制到 `dfnet-java/lib/macos-aarch64/`。
-*   **Linux (x64):** 将 `libdf.so` 复制到 `dfnet-java/lib/linux-x64/`。
+*   **macOS (ARM):** 将 `libdf.dylib` 复制到 `dfnet-java/lib/macos/aarch64/`。
+*   **Linux (x64):** 将 `libdf.so` 复制到 `dfnet-java/lib/linux/x86_64/`。
 
 **示例复制命令 (假设你在 DeepFilterNet 仓库的 `target/release` 目录下，或者在自定义的 `libDF` 编译目录的 `target/release` 目录下)：**
 
 *   **对于 macOS (ARM):**
     ```bash
-    cp libdf.dylib /path/to/dfnet-java/lib/macos-aarch64/
+    cp libdf.dylib /path/to/dfnet-java/lib/macos/aarch64/
     ```
 *   **对于 Linux (x64):**
     ```bash
-    cp libdf.so /path/to/dfnet-java/lib/linux-x64/
+    cp libdf.so /path/to/dfnet-java/lib/linux/x86_64/
     ```
 
 ## 🐳 使用 Docker 构建 `libdf` (Linux x64)
@@ -94,9 +94,9 @@
 
 3.  **从 Docker 镜像中提取 `libdf.so` (可选)：**
     ```bash
-    docker run --rm dfnet-java-builder:latest cat /app/lib/linux/x86_64/libdf.so > lib/linux-x64/libdf.so
+    docker run --rm dfnet-java-builder:latest cat /app/lib/linux/x86_64/libdf.so > lib/linux/x86_64/libdf.so
     ```
-    这将 `libdf.so` 从 Docker 镜像中提取到你的本地 `dfnet-java/lib/linux-x64/` 目录。
+    这将 `libdf.so` 从 Docker 镜像中提取到你的本地 `dfnet-java/lib/linux/x86_64/` 目录。
 
 ## 🚀 构建 `dfnet-java` (Java 项目)
 
@@ -158,7 +158,7 @@
 
 *   **`java.lang.UnsatisfiedLinkError: Unable to load library 'df'`：**
     *   **原因：** JNA 无法找到 `libdf.dylib` (macOS) 或 `libdf.so` (Linux)。
-    *   **解决方案：** 确保 `libdf` 已编译，并将其复制到 `dfnet-java/lib/<os>-<arch>/` 目录下。同时，检查 `pom.xml` 中 `jna.library.path` 的配置是否正确指向该目录 (通过 Maven Profiles 配置 `lib.path.os` 和 `lib.path.arch` 属性)。
+    *   **解决方案：** 确保 `libdf` 已编译，并将其复制到 `dfnet-java/lib/<os>/<arch>/` 目录下。同时，检查 `pom.xml` 中 `jna.library.path` 的配置是否正确指向该目录 (通过 Maven Profiles 配置 `lib.path.os` 和 `lib.path.arch` 属性)。
 *   **Rust `panic` (例如 `not yet implemented`)：**
     *   **原因：** 通常是 DeepFilterNet 模型版本与 `libdf` 所依赖的 `tract` 库版本不兼容。
     *   **解决方案：** 确保你使用的是 `DeepFilterNet3_onnx.tar.gz` 模型。如果问题仍然存在，请检查 `libDF` 源码的 `Cargo.toml` 中 `tract` 依赖的版本，并确保在编译 `libdf` 时使用了正确的 `Cargo.lock` (即原始 `DeepFilterNet` 工作区中的 `Cargo.lock`)。
