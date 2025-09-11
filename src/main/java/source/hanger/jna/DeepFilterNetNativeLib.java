@@ -1,7 +1,7 @@
-package source.hanger;
+package source.hanger.jna;
 
-import com.sun.jna.Native;
 import com.sun.jna.Library;
+import com.sun.jna.Native;
 import com.sun.jna.Pointer;
 
 public interface DeepFilterNetNativeLib extends Library {

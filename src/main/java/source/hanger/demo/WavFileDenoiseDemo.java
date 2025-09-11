@@ -6,7 +6,7 @@ import java.io.IOException;
 import javax.sound.sampled.UnsupportedAudioFileException;
 
 import lombok.extern.slf4j.Slf4j;
-import source.hanger.DeepFilterNetProcessor;
+import source.hanger.processor.DeepFilterNetProcessor;
 
 @Slf4j
 public class WavFileDenoiseDemo {

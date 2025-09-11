@@ -1,28 +1,36 @@
-package source.hanger;
+package source.hanger.processor;
 
-import com.sun.jna.Pointer;
-import lombok.extern.slf4j.Slf4j;
-
-import javax.sound.sampled.*;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
+import javax.sound.sampled.AudioFormat;
+import javax.sound.sampled.AudioInputStream;
+import javax.sound.sampled.AudioSystem;
+import javax.sound.sampled.UnsupportedAudioFileException;
+
+import com.sun.jna.Pointer;
+import lombok.extern.slf4j.Slf4j;
+import source.hanger.jna.DeepFilterNetLibraryInitializer;
+import source.hanger.jna.DeepFilterNetNativeLib;
+import source.hanger.log.DfNativeLogThread;
+import source.hanger.util.WavFileWriter;
+
 @Slf4j
 public class DeepFilterNetProcessor {
 
     private final DeepFilterNetNativeLib nativeLib;
-    private Pointer dfState;
     private final int frameLength;
-
     private final DfNativeLogThread logThread;
+    private Pointer dfState;
 
     /**
      * DeepFilterNetProcessor 构造函数，初始化模型。
+     *
      * @param modelPath DeepFilterNet ONNX 模型文件路径 (.tar.gz)。
-     * @param attenLim 衰减限制 (dB)。
-     * @param logLevel 日志级别 (例如 "info", "debug")。
+     * @param attenLim  衰减限制 (dB)。
+     * @param logLevel  日志级别 (例如 "info", "debug")。
      * @throws RuntimeException 如果模型无法创建或文件不存在。
      */
     public DeepFilterNetProcessor(String modelPath, float attenLim, String logLevel) throws RuntimeException {
@@ -53,13 +61,15 @@ public class DeepFilterNetProcessor {
 
     /**
      * 处理 WAV 文件并生成降噪后的文件。
-     * @param inputWavPath 输入 WAV 文件路径。
+     *
+     * @param inputWavPath  输入 WAV 文件路径。
      * @param outputWavPath 输出降噪后的 WAV 文件路径。
      * @throws IOException 如果文件操作失败。
      * @throws UnsupportedAudioFileException 如果输入文件不是有效的 WAV 格式。
      * @throws RuntimeException 如果音频处理过程中发生错误。
      */
-    public void denoiseWavFile(String inputWavPath, String outputWavPath) throws IOException, UnsupportedAudioFileException, RuntimeException {
+    public void denoiseWavFile(String inputWavPath, String outputWavPath)
+        throws IOException, UnsupportedAudioFileException, RuntimeException {
         File inputFile = new File(inputWavPath);
         if (!inputFile.exists()) {
             throw new IOException("DF_ERROR: 输入WAV文件不存在: " + inputWavPath);
@@ -70,13 +80,16 @@ public class DeepFilterNetProcessor {
             System.out.println("DF_LOG: 输入音频格式: " + audioFormat.toString());
 
             if (audioFormat.getChannels() != 1) {
-                throw new UnsupportedAudioFileException("DF_ERROR: DeepFilterNet 仅支持单声道音频。输入文件有 " + audioFormat.getChannels() + " 声道。");
+                throw new UnsupportedAudioFileException(
+                    "DF_ERROR: DeepFilterNet 仅支持单声道音频。输入文件有 " + audioFormat.getChannels() + " 声道。");
             }
             if (audioFormat.getSampleSizeInBits() != 16) {
-                System.err.println("DF_WARNING: 建议使用 16 bit 音频。输入文件是 " + audioFormat.getSampleSizeInBits() + " bit。");
+                System.err.println(
+                    "DF_WARNING: 建议使用 16 bit 音频。输入文件是 " + audioFormat.getSampleSizeInBits() + " bit。");
             }
             if (audioFormat.getSampleRate() != 48000.0f) {
-                System.err.println("DF_WARNING: 建议使用 48kHz 采样率。输入文件是 " + audioFormat.getSampleRate() + " Hz。");
+                System.err.println(
+                    "DF_WARNING: 建议使用 48kHz 采样率。输入文件是 " + audioFormat.getSampleRate() + " Hz。");
             }
 
             // 创建 WavFileWriter，用于写入降噪后的数据
@@ -114,7 +127,7 @@ public class DeepFilterNetProcessor {
                     // 将 float[] 转换为 byte[] (16-bit PCM)
                     byteBuffer.clear();
                     for (int i = 0; i < frameLength; i++) {
-                        short s = (short) (outputFloats[i] * 32768.0f);
+                        short s = (short)(outputFloats[i] * 32768.0f);
                         byteBuffer.putShort(s);
                     }
                     outputWriter.write(byteBuffer.array(), 0, bytesRead); // 写入原始字节数
@@ -125,7 +138,7 @@ public class DeepFilterNetProcessor {
                 System.out.println("DF_LOG: 降噪后的 WAV 文件已保存到: " + outputWavPath);
             }
 
-        } 
+        }
     }
 
     /**

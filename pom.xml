@@ -16,6 +16,7 @@
         <lombok.version>1.18.38</lombok.version> <!-- 使用最新的 Lombok 版本 -->
         <slf4j.version>1.7.32</slf4j.version> <!-- SLF4J API 版本 -->
         <logback.version>1.2.11</logback.version> <!-- Logback 版本 -->
+        <agrona.version>2.2.4</agrona.version>
         <lib.path.os>unknown</lib.path.os> <!-- 默认的操作系统库路径 -->
         <lib.path.arch>unknown-arch</lib.path.arch> <!-- 默认的架构库路径 -->
     </properties>
@@ -49,6 +50,13 @@
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
             <version>${logback.version}</version>
+        </dependency>
+
+        <!-- Agrona 高性能并发数据结构 -->
+        <dependency>
+            <groupId>org.agrona</groupId>
+            <artifactId>agrona</artifactId>
+            <version>${agrona.version}</version>
         </dependency>
     </dependencies>
 
@@ -86,7 +94,8 @@
                     <systemProperties>
                         <systemProperty>
                             <key>jna.library.path</key>
-                            <value>${project.basedir}/lib/${lib.path.os}-${lib.path.arch}</value> <!-- 调整路径结构以匹配 'lib/os-arch' 格式 -->
+                            <value>${project.basedir}/lib/${lib.path.os}-${lib.path.arch}
+                            </value> <!-- 调整路径结构以匹配 'lib/os-arch' 格式 -->
                         </systemProperty>
                     </systemProperties>
                 </configuration>

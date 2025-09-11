@@ -1,9 +1,10 @@
-package source.hanger;
+package source.hanger.log;
 
 import com.sun.jna.Pointer;
+import source.hanger.jna.DeepFilterNetNativeLib;
 
 public class DfNativeLogThread extends Thread {
-    private Pointer state;
+    private final Pointer state;
     private volatile boolean running = true;
 
     public DfNativeLogThread(Pointer state) {
@@ -25,7 +26,7 @@ public class DfNativeLogThread extends Thread {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 running = false;
-                System.err.println("DF_LOG_ERROR: 日志线程被中断。");
+                System.out.println("DF_LOG_WARN: 日志线程被中断。");
             } catch (Exception e) {
                 System.err.println("DF_LOG_ERROR: 读取原生日志时发生错误: " + e.getMessage());
             }

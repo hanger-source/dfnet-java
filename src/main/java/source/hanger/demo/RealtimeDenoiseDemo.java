@@ -2,11 +2,6 @@ package source.hanger.demo;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.sound.sampled.AudioFormat;
 import javax.sound.sampled.AudioInputStream;
@@ -14,13 +9,10 @@ import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.UnsupportedAudioFileException;
 
 import lombok.extern.slf4j.Slf4j;
-import source.hanger.DeepFilterNetStreamProcessor;
-import source.hanger.WavFileWriter;
+import source.hanger.processor.DeepFilterNetStreamProcessor;
 
 @Slf4j
 public class RealtimeDenoiseDemo {
-
-    private static final BlockingQueue<byte[]> denoisedOutputQueue = new ArrayBlockingQueue<>(500);
 
     public static void main(String[] args) {
         String modelPath = "models/DeepFilterNet3_onnx.tar.gz";
@@ -30,9 +22,7 @@ public class RealtimeDenoiseDemo {
 
         AudioInputStream audioInputStream = null;
         DeepFilterNetStreamProcessor streamProcessor = null;
-        RealtimeAudioWriter audioWriter = null;
-        DenoisedAudioWriterThread denoisedWriterThread = null;
-        Thread denoisedWriter;
+        CombinedAudioFrameWriter combinedAudioFrameWriter = null; // 使用 CombinedAudioFrameWriter
 
         try {
             audioInputStream = AudioSystem.getAudioInputStream(new File(inputWavPath));
@@ -42,142 +32,72 @@ public class RealtimeDenoiseDemo {
                 throw new UnsupportedAudioFileException("输入WAV文件必须是单声道、48kHz、16bit PCM 格式。");
             }
 
-            audioWriter = new RealtimeAudioWriter(format, outputOriginalWavPath);
-            streamProcessor = new DeepFilterNetStreamProcessor(modelPath, 100.0f, "trace", format, denoisedOutputQueue);
+            combinedAudioFrameWriter = new CombinedAudioFrameWriter(format, outputOriginalWavPath, outputDenoisedWavPath);
+            streamProcessor = new DeepFilterNetStreamProcessor(format, modelPath, 100.0f, "trace", combinedAudioFrameWriter, 8192, 500); // 修正构造函数参数
+            log.info("DF_DIAG: RealtimeDenoiseDemo: streamProcessor 实例化完成。");
 
-            denoisedWriterThread = new DenoisedAudioWriterThread(format, outputDenoisedWavPath, denoisedOutputQueue);
-            denoisedWriter = new Thread(denoisedWriterThread, "DenoisedAudioWriterThread");
-            denoisedWriter.start();
-
-            int frameLength = streamProcessor.getFrameLength();
-            int bytesPerFrame = format.getFrameSize();
-            byte[] buffer = new byte[frameLength * bytesPerFrame];
-            ByteBuffer byteBuffer = ByteBuffer.allocate(frameLength * bytesPerFrame);
-            byteBuffer.order(format.isBigEndian() ? ByteOrder.BIG_ENDIAN : ByteOrder.LITTLE_ENDIAN);
+            byte[] buffer = new byte[4096]; // 使用通用缓冲区大小，例如 4096 字节
 
             // 启动 DeepFilterNetStreamProcessor 的内部处理线程
             streamProcessor.start();
+            log.info("DF_DIAG: RealtimeDenoiseDemo: streamProcessor.start() 调用完成。初始 isRunning(): {}", streamProcessor.isRunning());
 
             int bytesRead;
+            int totalBytesRead = 0;
             while ((bytesRead = audioInputStream.read(buffer)) != -1) {
-                if (bytesRead < buffer.length) {
-                    break;
-                }
-                // 创建一个副本以避免并发修改问题，因为 buffer 会被重复使用
+                totalBytesRead += bytesRead;
+                log.debug("DF_DIAG: RealtimeDenoiseDemo: 读取音频数据。bytesRead: {}, totalBytesRead: {}", bytesRead, totalBytesRead);
                 byte[] bufferCopy = java.util.Arrays.copyOf(buffer, bytesRead);
-
-                audioWriter.onOriginalAudioFrame(bufferCopy, 0, bytesRead);
+                combinedAudioFrameWriter.onOriginalAudioFrame(bufferCopy, 0, bytesRead); // 写入原始数据
                 streamProcessor.processAudioFrame(bufferCopy);
             }
-            // 通知 DeepFilterNetStreamProcessor 输入已结束
-            streamProcessor.signalEndOfInput();
+            log.info("DF_DIAG: RealtimeDenoiseDemo: 文件读取循环结束。总共读取字节数: {}", totalBytesRead);
 
-            // 等待 DeepFilterNetStreamProcessor 完成所有处理
+            // 通知 DeepFilterNetStreamProcessor 输入已结束
+            log.info("DF_DIAG: RealtimeDenoiseDemo: 调用 streamProcessor.signalEndOfInput()。");
+            streamProcessor.signalEndOfInput();
+            log.info("DF_DIAG: RealtimeDenoiseDemo: signalEndOfInput() 调用完成。当前 isRunning(): {}", streamProcessor.isRunning());
+
+            // 等待处理器完成所有剩余数据的处理
+            long startTime = System.currentTimeMillis();
             while (streamProcessor.isRunning()) {
-                try {
-                    Thread.sleep(100); // 短暂休眠，等待处理完成
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    log.warn("主线程在等待 DeepFilterNetStreamProcessor 完成处理时被中断: {}", e.getMessage());
+                log.debug("DF_DIAG: RealtimeDenoiseDemo: 等待 streamProcessor 完成处理。当前 isRunning(): {}", streamProcessor.isRunning());
+                Thread.sleep(100); // 避免忙等
+                if (System.currentTimeMillis() - startTime > 10000) { // 增加超时机制
+                    log.warn("DF_WARN: RealtimeDenoiseDemo: 等待 streamProcessor 完成处理超时 (10秒)。强制停止。");
                     break;
                 }
             }
+            log.info("DF_DIAG: RealtimeDenoiseDemo: streamProcessor.isRunning() 为 false。");
+
+
+            log.info("DF_DIAG: RealtimeDenoiseDemo: 调用 streamProcessor.stop() 来优雅关闭处理器。");
+            // streamProcessor.stop(); // 移除此处对 stop() 的调用
+            log.info("DF_DIAG: RealtimeDenoiseDemo: streamProcessor.stop() 调用完成。");
+
             log.info("DeepFilterNetStreamProcessor 已完成所有音频帧的处理。");
 
-            // 确保 denoisedWriterThread 在所有降噪数据处理完后才停止
-            denoisedWriterThread.stop(); // 通知写入线程停止
-            try {
-                denoisedWriter.join();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                log.warn("等待降噪音频写入线程结束时被中断: {}", e.getMessage());
-            }
-
-        } catch (Exception e) {
-            log.error("实时降噪应用发生错误: {}", e.getMessage(), e);
+        } catch (Exception e) { // Simplified exception handling
+            log.error("DF_ERROR: 实时降噪应用发生错误: {}", e.getMessage(), e);
         } finally {
             if (audioInputStream != null) {
                 try {
                     audioInputStream.close();
                 } catch (IOException e) {
-                    log.error("关闭音频输入流失败: {}", e.getMessage(), e);
+                    log.error("DF_ERROR: 关闭音频输入流失败: {}", e.getMessage(), e);
+                }
+            }
+            if (combinedAudioFrameWriter != null) {
+                try {
+                    combinedAudioFrameWriter.close();
+                } catch (Exception e) {
+                    log.error("DF_ERROR: 关闭 CombinedAudioFrameWriter 失败: {}", e.getMessage(), e);
                 }
             }
             if (streamProcessor != null) {
-                streamProcessor.stop(); // 确保释放 DeepFilterNetStreamProcessor 资源
+                log.info("DF_DIAG: RealtimeDenoiseDemo: 在 finally 块中调用 streamProcessor.stop()。");
+                streamProcessor.stop(); // 移到 finally 块确保关闭
             }
-            if (audioWriter != null) {
-                try {
-                    audioWriter.close();
-                } catch (Exception e) {
-                    log.error("关闭 WAV 文件写入器失败: {}", e.getMessage(), e);
-                }
-            }
-        }
-    }
-
-    private static class RealtimeAudioWriter implements AutoCloseable {
-        private final WavFileWriter originalWavWriter;
-
-        public RealtimeAudioWriter(AudioFormat format, String originalFilePath) throws IOException {
-            this.originalWavWriter = new WavFileWriter(format, originalFilePath);
-        }
-
-        public void onOriginalAudioFrame(byte[] audioBytes, int offset, int length) {
-            try {
-                originalWavWriter.write(audioBytes, offset, length);
-            } catch (IOException e) {
-                log.error("写入原始音频文件失败: {}", e.getMessage(), e);
-            }
-        }
-
-        @Override
-        public void close() throws Exception {
-            originalWavWriter.close();
-        }
-    }
-
-    private static class DenoisedAudioWriterThread implements Runnable, AutoCloseable {
-        private final WavFileWriter denoisedWavWriter;
-        private final BlockingQueue<byte[]> queue;
-        private final AtomicBoolean running = new AtomicBoolean(true);
-
-        public DenoisedAudioWriterThread(AudioFormat format, String denoisedFilePath, BlockingQueue<byte[]> queue)
-            throws IOException {
-            this.denoisedWavWriter = new WavFileWriter(format, denoisedFilePath);
-            this.queue = queue;
-        }
-
-        @Override
-        public void run() {
-            try {
-                while (running.get() || !queue.isEmpty()) {
-                    byte[] audioBytes = queue.poll(100, java.util.concurrent.TimeUnit.MILLISECONDS);
-                    if (audioBytes != null) {
-                        denoisedWavWriter.write(audioBytes, 0, audioBytes.length);
-                    }
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                log.warn("DenoisedAudioWriterThread 写入线程中断: {}", e.getMessage());
-            } catch (IOException e) {
-                log.error("DenoisedAudioWriterThread 写入降噪音频文件失败: {}", e.getMessage(), e);
-            } finally {
-                try {
-                    close();
-                } catch (Exception e) {
-                    log.error("DenoisedAudioWriterThread 关闭文件写入器失败: {}", e.getMessage(), e);
-                }
-            }
-        }
-
-        public void stop() {
-            running.set(false);
-        }
-
-        @Override
-        public void close() throws Exception {
-            denoisedWavWriter.close();
         }
     }
 }

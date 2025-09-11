@@ -1,4 +1,4 @@
-package source.hanger;
+package source.hanger.util;
 
 import java.io.File;
 import java.io.IOException;
@@ -13,7 +13,7 @@ import lombok.extern.slf4j.Slf4j;
  * 它封装了 WAV 文件头生成和更新的逻辑，以及音频数据的写入。
  */
 @Slf4j
-public class WavFileWriter implements AutoCloseable, java.io.Flushable {
+public class WavFileWriter implements AutoCloseable, java.io.Flushable, AudioFrameListener {
     private final File outputFile;
     private final OutputStream os;
     private long bytesWritten = 0;
@@ -57,6 +57,24 @@ public class WavFileWriter implements AutoCloseable, java.io.Flushable {
     public void write(byte[] b, int off, int len) throws IOException {
         os.write(b, off, len);
         bytesWritten += len;
+    }
+
+    @Override
+    public void onOriginalAudioFrame(byte[] audioBytes, int offset, int length) {
+        try {
+            write(audioBytes, offset, length);
+        } catch (IOException e) {
+            log.error("写入原始音频帧失败: {}", e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public void onDenoisedAudioFrame(byte[] audioBytes, int offset, int length) {
+        try {
+            write(audioBytes, offset, length);
+        } catch (IOException e) {
+            log.error("写入降噪音频帧失败: {}", e.getMessage(), e);
+        }
     }
 
     // 写入 WAV 文件头，数据长度暂时为0
@@ -109,7 +127,7 @@ public class WavFileWriter implements AutoCloseable, java.io.Flushable {
 
         header[28] = (byte)(byteRate & 0xff); // Byte Rate
         header[29] = (byte)((byteRate >> 8) & 0xff);
-        header[30] = (byte)((byteRate >> 16) & 0xff);
+        header[30] = (byte)((byteRate >> 16) & 0xff); // 修复：重新添加被删除的行
         header[31] = (byte)((byteRate >> 24) & 0xff);
 
         header[32] = (byte)(channels * bytesPerSample); // Block Align

@@ -1,7 +1,8 @@
-package source.hanger;
+package source.hanger.jna;
+
+import java.io.File;
 
 import com.sun.jna.Native;
-import java.io.File;
 
 public class DeepFilterNetLibraryInitializer {
 
