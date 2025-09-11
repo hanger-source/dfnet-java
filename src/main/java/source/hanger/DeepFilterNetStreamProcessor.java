@@ -140,6 +140,10 @@ public class DeepFilterNetStreamProcessor {
         }
     }
 
+    public boolean isRunning() {
+        return running.get();
+    }
+
     public boolean processAudioFrame(byte[] inputBytes) {
         // 将 byte[] 转换为 float[]
         internalByteBuffer.clear();
