@@ -35,6 +35,7 @@ import source.hanger.util.AudioFrameListener;
 public class DeepFilterNetStreamProcessor {
 
     private static final int MSG_TYPE_ID = 1; // Ring Buffer 消息类型 ID
+    private static final long AGENT_SHUTDOWN_TIMEOUT_MS = 500; // Agent 关闭超时时间，例如 500 毫秒
 
     private final OneToOneRingBuffer ringBuffer; // Agrona Ring Buffer 作为内部输入缓冲区
     private final MutableDirectBuffer tempWriteBuffer; // 用于将传入的 byte[] 包装成 DirectBuffer
@@ -46,6 +47,8 @@ public class DeepFilterNetStreamProcessor {
     private final AgentRunner ioLogAgentRunner; // 组合 Agent 的 Runner
     private final DeepFilterNetNativeLib nativeLib;
     private Pointer dfState;
+    private Thread processingAgentThread; // 新增：用于存储处理代理线程
+    private Thread ioLogAgentThread;     // 新增：用于存储组合I/O/日志代理线程
 
     public DeepFilterNetStreamProcessor(
         float attenLim,
@@ -108,8 +111,8 @@ public class DeepFilterNetStreamProcessor {
 
     public void start() {
         endOfInputSignaled.set(false);
-        AgentRunner.startOnThread(processingAgentRunner);
-        AgentRunner.startOnThread(ioLogAgentRunner); // 启动组合 I/O 和日志代理
+        this.processingAgentThread = AgentRunner.startOnThread(processingAgentRunner);
+        this.ioLogAgentThread = AgentRunner.startOnThread(ioLogAgentRunner); // 启动组合 I/O 和日志代理
     }
 
     public void stop() {
@@ -118,10 +121,28 @@ public class DeepFilterNetStreamProcessor {
 
         if (processingAgentRunner != null) {
             processingAgentRunner.close();
+            if (processingAgentThread != null) {
+                try {
+                    processingAgentThread.join(AGENT_SHUTDOWN_TIMEOUT_MS); // 等待线程终止
+                    log.info("DF_LOG_INFO: 处理代理线程已关闭。");
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt(); // 恢复中断状态
+                    log.warn("DF_WARN: 等待处理代理关闭时被中断。", e);
+                }
+            }
         }
         if (ioLogAgentRunner != null) {
             ioLogAgentRunner.close();
             log.info("DF_LOG_INFO: 组合I/O/日志代理已关闭。");
+            if (ioLogAgentThread != null) {
+                try {
+                    ioLogAgentThread.join(AGENT_SHUTDOWN_TIMEOUT_MS); // 等待线程终止
+                    log.info("DF_LOG_INFO: 组合I/O/日志代理线程已关闭。");
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt(); // 恢复中断状态
+                    log.warn("DF_WARN: 等待组合I/O/日志代理关闭时被中断。", e);
+                }
+            }
         }
         release();
     }

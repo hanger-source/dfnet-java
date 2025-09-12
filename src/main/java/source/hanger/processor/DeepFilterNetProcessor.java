@@ -23,10 +23,13 @@ import source.hanger.util.WavFileWriter;
 @Slf4j
 public class DeepFilterNetProcessor {
 
+    private static final long AGENT_SHUTDOWN_TIMEOUT_MS = 500; // Agent 关闭超时时间，例如 500 毫秒
+
     private final DeepFilterNetNativeLib nativeLib;
     private final int frameLength;
     private final AgentRunner logAgentRunner;
     private Pointer dfState;
+    private final Thread logAgentThread; // 新增：用于存储日志代理线程
 
     /**
      * DeepFilterNetProcessor 构造函数，初始化模型。
@@ -50,7 +53,7 @@ public class DeepFilterNetProcessor {
         DfNativeLogAgent logAgent = new DfNativeLogAgent(dfState);
         logAgentRunner = new AgentRunner(new SleepingIdleStrategy(100_000), // 100微秒 = 0.1毫秒
             exception -> log.error("DF_LOG_ERROR: 日志代理出现异常: {}", exception.getMessage(), exception), null, logAgent);
-        AgentRunner.startOnThread(logAgentRunner);
+        this.logAgentThread = AgentRunner.startOnThread(logAgentRunner); // 将返回的 Thread 赋值给成员变量
 
         // 2. 获取 DeepFilterNet 期望的帧长度
         frameLength = nativeLib.df_get_frame_length(dfState);
@@ -146,6 +149,15 @@ public class DeepFilterNetProcessor {
         if (logAgentRunner != null) {
             logAgentRunner.close();
             log.info("DF_LOG_INFO: 日志代理已关闭。");
+            if (logAgentThread != null) {
+                try {
+                    logAgentThread.join(AGENT_SHUTDOWN_TIMEOUT_MS); // 等待线程终止
+                    log.info("DF_LOG_INFO: 日志代理线程已关闭。");
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt(); // 恢复中断状态
+                    log.warn("DF_WARN: 等待日志代理关闭时被中断。", e);
+                }
+            }
         }
         if (dfState != Pointer.NULL) {
             nativeLib.df_free(dfState);
