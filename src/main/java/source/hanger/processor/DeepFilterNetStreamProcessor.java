@@ -25,6 +25,7 @@ import org.agrona.concurrent.ringbuffer.RingBufferDescriptor;
 import source.hanger.jna.DeepFilterNetLibraryInitializer;
 import source.hanger.jna.DeepFilterNetNativeLib;
 import source.hanger.log.DfNativeLogAgent;
+import source.hanger.processor.agent.CompositeIoLogAgent;
 import source.hanger.processor.agent.DeepFilterNetListenerAgent;
 import source.hanger.processor.agent.DeepFilterNetProcessingAgent;
 import source.hanger.util.AudioFrameListener;
@@ -40,16 +41,12 @@ public class DeepFilterNetStreamProcessor {
     private final AtomicBoolean endOfInputSignaled = new AtomicBoolean(false); // 指示外部生产者是否已完成数据输入
     private final OneToOneConcurrentArrayQueue<byte[]> listenerOutputQueue; // Agrona 队列，只用于降噪数据
     @lombok.Getter
-    private final int frameLength; // 声明为 final
-    private final DeepFilterNetProcessingAgent processingAgent; // 声明为成员变量
-    private final DeepFilterNetListenerAgent listenerAgent;   // 声明为成员变量
+    private final int frameLength;
     private final AgentRunner processingAgentRunner;
-    private final AgentRunner listenerAgentRunner;
-    private final AgentRunner logAgentRunner;
+    private final AgentRunner ioLogAgentRunner; // 新增组合 Agent 的 Runner
     private final DeepFilterNetNativeLib nativeLib;
-    private final DfNativeLogAgent logAgent;
     private Pointer dfState;
-    private File modelTempFile; // 新增：用于存储临时模型文件的引用
+    private File modelTempFile; // 用于存储临时模型文件的引用
 
     public DeepFilterNetStreamProcessor(
         float attenLim,
@@ -77,13 +74,10 @@ public class DeepFilterNetStreamProcessor {
         this.ringBuffer = new OneToOneRingBuffer(ringBufferDirectBuffer); // 更正 OneToOneRingBuffer 构造函数
         this.tempWriteBuffer = new UnsafeBuffer(new byte[alignedDataCapacity]); // tempWriteBuffer 的大小应该是实际数据存储的容量
 
-        // Agrona OneToOneConcurrentArrayQueue for listener output
         this.listenerOutputQueue = new OneToOneConcurrentArrayQueue<>(listenerQueueCapacity);
-        // log.info("Agrona Listener Output Queue 初始化完成. Capacity: {}", listenerQueueCapacity);
-
         final IdleStrategy idleStrategy = new SleepingIdleStrategy(1); // 避免 CPU 忙等
 
-        this.processingAgent = new DeepFilterNetProcessingAgent(
+        DeepFilterNetProcessingAgent processingAgent = new DeepFilterNetProcessingAgent(
             this.nativeLib,
             this.dfState,
             this.frameLength,
@@ -92,20 +86,26 @@ public class DeepFilterNetStreamProcessor {
             this.endOfInputSignaled
         );
 
-        this.listenerAgent = new DeepFilterNetListenerAgent(
+        DeepFilterNetListenerAgent listenerAgent = new DeepFilterNetListenerAgent(
             denoisedFrameListener,
             this.listenerOutputQueue,
             this.endOfInputSignaled,
             this.ringBuffer
         );
-        this.processingAgentRunner = new AgentRunner(idleStrategy, exception -> log.error("DF_LOG_ERROR: 处理代理出现异常: {}", exception.getMessage(), exception), null,
-            this.processingAgent);
-        this.listenerAgentRunner = new AgentRunner(idleStrategy, exception -> log.error("DF_LOG_ERROR: 监听代理出现异常: {}", exception.getMessage(), exception), null, this.listenerAgent);
+        DfNativeLogAgent logAgent = new DfNativeLogAgent(dfState);
 
-        this.logAgent = new DfNativeLogAgent(dfState);
-        this.logAgentRunner = new AgentRunner(idleStrategy,
-            exception -> log.error("DF_LOG_ERROR: 日志代理出现异常: {}", exception.getMessage(), exception), null, logAgent);
-        // AgentRunner.startOnThread(logAgentRunner); // 移除此处直接启动，改为在 start() 方法中启动
+        this.processingAgentRunner = new AgentRunner(idleStrategy,
+            exception -> log.error("DF_LOG_ERROR: 处理代理出现异常: {}", exception.getMessage(), exception), null,
+            processingAgent);
+        // 实例化 DfNativeLogAgent
+        // 实例化 CompositeIoLogAgent，将 listenerAgent 和 logAgent 传入
+        CompositeIoLogAgent compositeIoLogAgent = new CompositeIoLogAgent(listenerAgent, logAgent);
+
+        // 实例化 ioLogAgentRunner，将 compositeIoLogAgent 作为参数传入
+        this.ioLogAgentRunner = new AgentRunner(idleStrategy,
+            exception -> log.error("DF_LOG_ERROR: 组合I/O/日志代理出现异常: {}", exception.getMessage(), exception),
+            null,
+            compositeIoLogAgent);
     }
 
     /**
@@ -130,8 +130,7 @@ public class DeepFilterNetStreamProcessor {
     public void start() {
         endOfInputSignaled.set(false);
         AgentRunner.startOnThread(processingAgentRunner);
-        AgentRunner.startOnThread(listenerAgentRunner);
-        AgentRunner.startOnThread(logAgentRunner); // 启动日志代理
+        AgentRunner.startOnThread(ioLogAgentRunner); // 启动组合 I/O 和日志代理
     }
 
     public void stop() {
@@ -141,11 +140,9 @@ public class DeepFilterNetStreamProcessor {
         if (processingAgentRunner != null) {
             processingAgentRunner.close();
         }
-        if (listenerAgentRunner != null) {
-            listenerAgentRunner.close();
-        }
-        if (logAgentRunner != null) {
-            logAgentRunner.close();
+        if (ioLogAgentRunner != null) {
+            ioLogAgentRunner.close();
+            log.info("DF_LOG_INFO: 组合I/O/日志代理已关闭。");
         }
         release();
     }
@@ -177,7 +174,7 @@ public class DeepFilterNetStreamProcessor {
 
     public boolean processAudioFrame(ByteBuffer inputBuffer) {
         if (endOfInputSignaled.get()) {
-            // log.warn("DF_WARN: processAudioFrame: 输入结束信号=true，拒绝处理新帧。");
+            log.warn("DF_WARN: processAudioFrame: 输入结束信号=true，拒绝处理新帧。");
             return false;
         }
 
