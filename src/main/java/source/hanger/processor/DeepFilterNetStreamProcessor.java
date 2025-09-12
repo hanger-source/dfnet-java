@@ -24,7 +24,7 @@ import org.agrona.concurrent.ringbuffer.OneToOneRingBuffer;
 import org.agrona.concurrent.ringbuffer.RingBufferDescriptor;
 import source.hanger.jna.DeepFilterNetLibraryInitializer;
 import source.hanger.jna.DeepFilterNetNativeLib;
-import source.hanger.log.DfNativeLogThread;
+import source.hanger.log.DfNativeLogAgent;
 import source.hanger.processor.agent.DeepFilterNetListenerAgent;
 import source.hanger.processor.agent.DeepFilterNetProcessingAgent;
 import source.hanger.util.AudioFrameListener;
@@ -35,7 +35,6 @@ public class DeepFilterNetStreamProcessor {
     private static final int MSG_TYPE_ID = 1; // Ring Buffer 消息类型 ID
     private static final String MODEL_RESOURCE_PATH = "models/DeepFilterNet3_onnx.tar.gz"; // JAR 内部模型路径
 
-    private final DfNativeLogThread logThread;
     private final OneToOneRingBuffer ringBuffer; // Agrona Ring Buffer 作为内部输入缓冲区
     private final MutableDirectBuffer tempWriteBuffer; // 用于将传入的 byte[] 包装成 DirectBuffer
     private final AtomicBoolean endOfInputSignaled = new AtomicBoolean(false); // 指示外部生产者是否已完成数据输入
@@ -46,7 +45,9 @@ public class DeepFilterNetStreamProcessor {
     private final DeepFilterNetListenerAgent listenerAgent;   // 声明为成员变量
     private final AgentRunner processingAgentRunner;
     private final AgentRunner listenerAgentRunner;
+    private final AgentRunner logAgentRunner;
     private final DeepFilterNetNativeLib nativeLib;
+    private final DfNativeLogAgent logAgent;
     private Pointer dfState;
     private File modelTempFile; // 新增：用于存储临时模型文件的引用
 
@@ -65,8 +66,6 @@ public class DeepFilterNetStreamProcessor {
             throw new IllegalStateException("DF_LOG_ERROR: 无法创建 DeepFilterNet 状态。");
         }
         this.frameLength = nativeLib.df_get_frame_length(dfState); // 从原生库获取帧长度
-        this.logThread = new DfNativeLogThread(dfState);
-        this.logThread.start();
 
         // Agrona Ring Buffer 初始化
         // 计算 Ring Buffer 实际数据存储的容量 (必须是2的幂)
@@ -99,9 +98,14 @@ public class DeepFilterNetStreamProcessor {
             this.endOfInputSignaled,
             this.ringBuffer
         );
-        this.processingAgentRunner = new AgentRunner(idleStrategy, Throwable::printStackTrace, null,
+        this.processingAgentRunner = new AgentRunner(idleStrategy, exception -> log.error("DF_LOG_ERROR: 处理代理出现异常: {}", exception.getMessage(), exception), null,
             this.processingAgent);
-        this.listenerAgentRunner = new AgentRunner(idleStrategy, Throwable::printStackTrace, null, this.listenerAgent);
+        this.listenerAgentRunner = new AgentRunner(idleStrategy, exception -> log.error("DF_LOG_ERROR: 监听代理出现异常: {}", exception.getMessage(), exception), null, this.listenerAgent);
+
+        this.logAgent = new DfNativeLogAgent(dfState);
+        this.logAgentRunner = new AgentRunner(idleStrategy,
+            exception -> log.error("DF_LOG_ERROR: 日志代理出现异常: {}", exception.getMessage(), exception), null, logAgent);
+        // AgentRunner.startOnThread(logAgentRunner); // 移除此处直接启动，改为在 start() 方法中启动
     }
 
     /**
@@ -125,26 +129,25 @@ public class DeepFilterNetStreamProcessor {
 
     public void start() {
         endOfInputSignaled.set(false);
-        // log.info("DeepFilterNetStreamProcessor 启动 AgentRunner...");
-        new Thread(processingAgentRunner, processingAgent.roleName()).start(); // 修正 roleName() 调用
-        new Thread(listenerAgentRunner, listenerAgent.roleName()).start(); // 修正 roleName() 调用
+        AgentRunner.startOnThread(processingAgentRunner);
+        AgentRunner.startOnThread(listenerAgentRunner);
+        AgentRunner.startOnThread(logAgentRunner); // 启动日志代理
     }
 
     public void stop() {
-        // log.info("DeepFilterNetStreamProcessor 停止中...");
+        log.info("DF_LOG: DeepFilterNetStreamProcessor 停止中...");
         endOfInputSignaled.set(true); // 通知所有 Agent 发送输入结束信号
 
         if (processingAgentRunner != null) {
             processingAgentRunner.close();
-            // log.info("处理AgentRunner已关闭。");
         }
         if (listenerAgentRunner != null) {
             listenerAgentRunner.close();
-            // log.info("监听AgentRunner已关闭。");
         }
-
+        if (logAgentRunner != null) {
+            logAgentRunner.close();
+        }
         release();
-        // log.info("DeepFilterNetStreamProcessor 已停止。");
     }
 
     public void signalEndOfInput() {
@@ -161,14 +164,6 @@ public class DeepFilterNetStreamProcessor {
                 log.info("DF_INFO: 临时模型文件已删除: {}", modelTempFile.getAbsolutePath());
             } else {
                 log.warn("DF_WARN: 无法删除临时模型文件: {}", modelTempFile.getAbsolutePath());
-            }
-        }
-        if (logThread != null) {
-            logThread.stopLogging();
-            try {
-                logThread.join();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
             }
         }
         // 新增：调用本地库清理方法

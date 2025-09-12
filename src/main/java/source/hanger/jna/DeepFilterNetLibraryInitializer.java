@@ -118,8 +118,10 @@ public class DeepFilterNetLibraryInitializer {
             try {
                 nativeLibInstance = Native.load("df", DeepFilterNetNativeLib.class);
             } catch (UnsatisfiedLinkError e) {
-                log.error("DF_ERROR: 无法加载本地库 'df'。请确保 'libdf.dylib' (macOS) / 'libdf.so' (Linux) / 'df.dll' (Windows) " +
-                    "文件存在于 jna.library.path ({}) 或系统库路径中。错误信息: {}", System.getProperty("jna.library.path", "未设置"), e.getMessage());
+                log.error("DF_ERROR: 无法加载本地库 'df'。请确保 'libdf.dylib' (macOS) / 'libdf.so' (Linux) / 'df.dll' (Windows) "
+                        +
+                        "文件存在于 jna.library.path ({}) 或系统库路径中。错误信息: {}",
+                    System.getProperty("jna.library.path", "未设置"), e.getMessage());
                 throw e;
             }
         }
@@ -128,6 +130,7 @@ public class DeepFilterNetLibraryInitializer {
 
     /**
      * 递归删除目录及其所有内容。
+     *
      * @param directory 要删除的目录
      * @return 如果成功删除则返回 true，否则返回 false
      */

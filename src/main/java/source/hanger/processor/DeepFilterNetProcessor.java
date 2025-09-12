@@ -12,9 +12,11 @@ import javax.sound.sampled.UnsupportedAudioFileException;
 
 import com.sun.jna.Pointer;
 import lombok.extern.slf4j.Slf4j;
+import org.agrona.concurrent.AgentRunner;
+import org.agrona.concurrent.SleepingIdleStrategy;
 import source.hanger.jna.DeepFilterNetLibraryInitializer;
 import source.hanger.jna.DeepFilterNetNativeLib;
-import source.hanger.log.DfNativeLogThread;
+import source.hanger.log.DfNativeLogAgent;
 import source.hanger.util.WavFileWriter;
 
 @Slf4j
@@ -22,7 +24,7 @@ public class DeepFilterNetProcessor {
 
     private final DeepFilterNetNativeLib nativeLib;
     private final int frameLength;
-    private final DfNativeLogThread logThread;
+    private final AgentRunner logAgentRunner;
     private Pointer dfState;
 
     /**
@@ -48,15 +50,17 @@ public class DeepFilterNetProcessor {
         if (dfState == Pointer.NULL) {
             throw new RuntimeException("DF_ERROR: 无法创建 DeepFilterNet 模型。请检查模型路径或日志。");
         }
-        System.out.println("DF_LOG: DeepFilterNet 模型创建成功。");
+        log.info("DF_LOG: DeepFilterNet 模型创建成功。");
 
-        // 启动日志线程
-        logThread = new DfNativeLogThread(dfState);
-        logThread.start();
+        // 启动日志代理
+        DfNativeLogAgent logAgent = new DfNativeLogAgent(dfState);
+        logAgentRunner = new AgentRunner(new SleepingIdleStrategy(100_000), // 100微秒 = 0.1毫秒
+            exception -> log.error("DF_LOG_ERROR: 日志代理出现异常: {}", exception.getMessage(), exception), null, logAgent);
+        AgentRunner.startOnThread(logAgentRunner);
 
         // 2. 获取 DeepFilterNet 期望的帧长度
         frameLength = nativeLib.df_get_frame_length(dfState);
-        System.out.println("DF_LOG: DeepFilterNet 期望的帧长度 (样本数): " + frameLength);
+        log.info("DF_LOG: DeepFilterNet 期望的帧长度 (样本数): {}", frameLength);
     }
 
     /**
@@ -77,19 +81,19 @@ public class DeepFilterNetProcessor {
 
         try (AudioInputStream audioInputStream = AudioSystem.getAudioInputStream(inputFile)) {
             AudioFormat audioFormat = audioInputStream.getFormat();
-            System.out.println("DF_LOG: 输入音频格式: " + audioFormat.toString());
+            log.info("DF_LOG: 输入音频格式: {}", audioFormat.toString());
 
             if (audioFormat.getChannels() != 1) {
                 throw new UnsupportedAudioFileException(
                     "DF_ERROR: DeepFilterNet 仅支持单声道音频。输入文件有 " + audioFormat.getChannels() + " 声道。");
             }
             if (audioFormat.getSampleSizeInBits() != 16) {
-                System.err.println(
-                    "DF_WARNING: 建议使用 16 bit 音频。输入文件是 " + audioFormat.getSampleSizeInBits() + " bit。");
+                log.warn(
+                    "DF_WARNING: 建议使用 16 bit 音频。输入文件是 {} bit。", audioFormat.getSampleSizeInBits());
             }
             if (audioFormat.getSampleRate() != 48000.0f) {
-                System.err.println(
-                    "DF_WARNING: 建议使用 48kHz 采样率。输入文件是 " + audioFormat.getSampleRate() + " Hz。");
+                log.warn(
+                    "DF_WARNING: 建议使用 48kHz 采样率。输入文件是 {} Hz。", audioFormat.getSampleRate());
             }
 
             // 创建 WavFileWriter，用于写入降噪后的数据
@@ -102,14 +106,14 @@ public class DeepFilterNetProcessor {
 
                 int bytesRead;
                 int frameCount = 0;
-                System.out.println("DF_LOG: 开始处理音频帧...");
+                log.info("DF_LOG: 开始处理音频帧...");
 
                 while ((bytesRead = audioInputStream.read(audioBytes)) != -1) {
                     if (bytesRead < audioBytes.length) {
                         // 处理最后一帧可能不足 frameLength 的情况
                         // 为了简化，这里直接跳过不足一帧的数据
                         // 更完善的处理方式可以是填充0或复制最后一点数据
-                        System.err.println("DF_WARNING: 最后一帧不足 " + frameLength + " 样本，已忽略。");
+                        log.warn("DF_WARNING: 最后一帧不足 {} 样本，已忽略。", frameLength);
                         break;
                     }
 
@@ -134,8 +138,8 @@ public class DeepFilterNetProcessor {
 
                     frameCount++;
                 }
-                System.out.println("DF_LOG: 音频处理完成。处理了 " + frameCount + " 帧。");
-                System.out.println("DF_LOG: 降噪后的 WAV 文件已保存到: " + outputWavPath);
+                log.info("DF_LOG: 音频处理完成。处理了 {} 帧。", frameCount);
+                log.info("DF_LOG: 降噪后的 WAV 文件已保存到: {}", outputWavPath);
             }
 
         }
@@ -145,19 +149,14 @@ public class DeepFilterNetProcessor {
      * 释放 DeepFilterNet 模型资源。
      */
     public void release() {
+        if (logAgentRunner != null) {
+            logAgentRunner.close();
+            log.info("DF_LOG_INFO: 日志代理已关闭。");
+        }
         if (dfState != Pointer.NULL) {
             nativeLib.df_free(dfState);
             dfState = Pointer.NULL;
-            System.out.println("DF_LOG: DeepFilterNet 模型资源已释放。");
-        }
-        if (logThread != null) {
-            logThread.stopLogging();
-            try {
-                logThread.join(); // 等待日志线程结束
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                System.err.println("DF_LOG_ERROR: 等待日志线程结束时被中断。");
-            }
+            log.info("DF_LOG: DeepFilterNet 模型资源已释放。");
         }
     }
 }
