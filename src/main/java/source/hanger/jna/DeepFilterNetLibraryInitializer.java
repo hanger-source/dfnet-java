@@ -30,51 +30,54 @@ public class DeepFilterNetLibraryInitializer {
             return;
         }
 
-        // 根据 OS 和架构推断本地库名称
-        String libName = "df";
         String osName = System.getProperty("os.name").toLowerCase();
         String osArch = System.getProperty("os.arch").toLowerCase();
-        String platformSpecificLibName = null;
+        PlatformInfo platformInfo = getPlatformInfo(osName, osArch);
 
-        if (osName.contains("mac")) {
-            osName = "macos";
-            if (osArch.contains("aarch64") || osArch.contains("arm64")) {
-                osArch = "aarch64";
-            } else if (osArch.contains("x86_64")) {
-                osArch = "x86_64";
-            }
-            platformSpecificLibName = "lib" + libName + ".dylib";
-        } else if (osName.contains("linux")) {
-            osName = "linux";
-            if (osArch.contains("amd64") || osArch.contains("x86_64")) {
-                osArch = "x86_64";
-            } else if (osArch.contains("aarch64") || osArch.contains("arm64")) {
-                osArch = "aarch64";
-            }
-            platformSpecificLibName = "lib" + libName + ".so";
-        } else if (osName.contains("windows")) {
-            osName = "windows";
-            if (osArch.contains("amd64") || osArch.contains("x86_64")) {
-                osArch = "x86_64";
-            } else if (osArch.contains("aarch64") || osArch.contains("arm64")) {
-                osArch = "aarch64";
-            }
-            platformSpecificLibName = libName + ".dll";
-        } else {
+        if (platformInfo == null) {
             log.warn("DF_WARN: 未知操作系统或架构: {} - {}. 无法自动设置 JNA 库路径。", osName, osArch);
             return;
         }
 
-        String resourceLibPath = String.format("/lib/%s/%s/%s", osName, osArch, platformSpecificLibName);
+        // --- 优先尝试在文件系统上查找原生库 ---
+        try {
+            File projectRoot = new File(System.getProperty("user.dir"));
+            File fileSystemLibDir = new File(projectRoot,
+                String.format("lib%s%s%s%s", File.separator, platformInfo.standardizedOsName, File.separator,
+                    platformInfo.standardizedOsArch));
+            File fileSystemLibFile = new File(fileSystemLibDir, platformInfo.platformSpecificLibName);
+
+            if (fileSystemLibFile.exists() && fileSystemLibFile.isFile()) {
+                String libAbsolutePath = fileSystemLibFile.getParentFile().getAbsolutePath();
+                String currentJnaPath = System.getProperty("jna.library.path", "");
+                String newJnaPath;
+                if (currentJnaPath.isEmpty()) {
+                    newJnaPath = libAbsolutePath;
+                } else {
+                    newJnaPath = currentJnaPath + File.pathSeparator + libAbsolutePath;
+                }
+                System.setProperty("jna.library.path", newJnaPath);
+                log.info("DF_LOG: 已在文件系统上找到并设置 JNA 库路径: {}", newJnaPath);
+                initializedPath = true;
+                return;
+            } else {
+                log.info("DF_LOG: 未在文件系统上找到本地库: {}", fileSystemLibFile.getAbsolutePath());
+            }
+        } catch (Exception e) {
+            log.error("DF_ERROR: 在文件系统上查找本地库时发生错误: {}", e.getMessage(), e);
+        }
+
+        // --- 回退到 JAR 资源提取 (现有逻辑) ---
+        String resourceLibPath = String.format("/lib/%s/%s/%s", platformInfo.standardizedOsName,
+            platformInfo.standardizedOsArch, platformInfo.platformSpecificLibName);
         log.info("DF_LOG: 尝试从 JAR 资源路径加载本地库: {}", resourceLibPath);
 
         try {
-            // 创建临时目录来解压本地库
             nativeLibTempDir = Files.createTempDirectory("df_native_lib").toFile();
-            nativeLibTempDir.deleteOnExit(); // 确保 JVM 退出时删除目录
+            nativeLibTempDir.deleteOnExit();
 
-            File tempLibFile = new File(nativeLibTempDir, platformSpecificLibName);
-            tempLibFile.deleteOnExit(); // 确保 JVM 退出时删除文件
+            File tempLibFile = new File(nativeLibTempDir, platformInfo.platformSpecificLibName);
+            tempLibFile.deleteOnExit();
 
             try (InputStream inputStream = DeepFilterNetLibraryInitializer.class.getResourceAsStream(resourceLibPath)) {
                 if (inputStream == null) {
@@ -85,7 +88,6 @@ public class DeepFilterNetLibraryInitializer {
                 log.info("DF_INFO: 本地库已成功提取到临时文件: {}", tempLibFile.getAbsolutePath());
             }
 
-            // 将临时目录添加到 jna.library.path
             String currentJnaPath = System.getProperty("jna.library.path", "");
             String newJnaPath;
             if (currentJnaPath.isEmpty()) {
@@ -99,21 +101,19 @@ public class DeepFilterNetLibraryInitializer {
             initializedPath = true;
         } catch (IOException e) {
             log.error("DF_ERROR: 无法提取或设置 JNA 本地库路径: {}", e.getMessage(), e);
-            // 在初始化失败时，尝试清理可能已创建的临时目录
             if (nativeLibTempDir != null && nativeLibTempDir.exists()) {
-                deleteDirectory(nativeLibTempDir); // 递归删除目录
+                deleteDirectory(nativeLibTempDir);
             }
         } catch (Exception e) {
             log.error("DF_ERROR: 初始化 JNA 本地库路径时发生意外错误: {}", e.getMessage(), e);
-            // 在初始化失败时，尝试清理可能已创建的临时目录
             if (nativeLibTempDir != null && nativeLibTempDir.exists()) {
-                deleteDirectory(nativeLibTempDir); // 递归删除目录
+                deleteDirectory(nativeLibTempDir);
             }
         }
     }
 
     public static synchronized DeepFilterNetNativeLib getNativeLibraryInstance() {
-        initializeNativeLibraryPath(); // 确保路径已经被初始化
+        initializeNativeLibraryPath();
         if (nativeLibInstance == null) {
             try {
                 nativeLibInstance = Native.load("df", DeepFilterNetNativeLib.class);
@@ -128,13 +128,44 @@ public class DeepFilterNetLibraryInitializer {
         return nativeLibInstance;
     }
 
-    /**
-     * 递归删除目录及其所有内容。
-     *
-     * @param directory 要删除的目录
-     * @return 如果成功删除则返回 true，否则返回 false
-     */
-    private static boolean deleteDirectory(File directory) {
+    // 重命名并修改 getPlatformSpecificLibName 方法
+    private static PlatformInfo getPlatformInfo(String osName, String osArch) {
+        String libName = "df";
+        String standardizedOsName = osName;
+        String standardizedOsArch = osArch;
+        String platformSpecificLibName = null;
+
+        if (osName.contains("mac")) {
+            standardizedOsName = "macos";
+            if (osArch.contains("aarch64") || osArch.contains("arm64")) {
+                standardizedOsArch = "aarch64";
+            } else if (osArch.contains("x86_64")) {
+                standardizedOsArch = "x86_64";
+            }
+            platformSpecificLibName = "lib" + libName + ".dylib";
+        } else if (osName.contains("linux")) {
+            standardizedOsName = "linux";
+            if (osArch.contains("amd64") || osArch.contains("x86_64")) {
+                standardizedOsArch = "x86_64";
+            } else if (osArch.contains("aarch64") || osArch.contains("arm64")) {
+                standardizedOsArch = "aarch64";
+            }
+            platformSpecificLibName = "lib" + libName + ".so";
+        } else if (osName.contains("windows")) {
+            standardizedOsName = "windows";
+            if (osArch.contains("amd64") || osArch.contains("x86_64")) {
+                standardizedOsArch = "x86_64";
+            }
+            platformSpecificLibName = libName + ".dll";
+        }
+
+        if (platformSpecificLibName == null) {
+            return null; // 无法确定平台特定库名
+        }
+        return new PlatformInfo(standardizedOsName, standardizedOsArch, platformSpecificLibName);
+    }
+
+    private static void deleteDirectory(File directory) {
         if (directory.isDirectory()) {
             File[] files = directory.listFiles();
             if (files != null) {
@@ -143,6 +174,9 @@ public class DeepFilterNetLibraryInitializer {
                 }
             }
         }
-        return directory.delete();
+        directory.delete();
+    }
+
+    private record PlatformInfo(String standardizedOsName, String standardizedOsArch, String platformSpecificLibName) {
     }
 }
