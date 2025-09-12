@@ -11,8 +11,6 @@ import source.hanger.processor.DeepFilterNetProcessor;
 @Slf4j
 public class WavFileDenoiseDemo {
 
-    // 相对路径：模型文件现在位于 dfnet-java 项目的 models 目录下
-    private static final String MODEL_RELATIVE_PATH = "models/DeepFilterNet3_onnx.tar.gz";
     // 相对路径：输入 WAV 文件现在位于 dfnet-java 项目的 data 目录下
     private static final String INPUT_WAV_RELATIVE_PATH = "data/speech_with_noise_48k.wav";
     private static final String OUTPUT_DIR = "out/"; // 输出目录位于 dfnet-java 项目根目录下的 out 目录
@@ -43,7 +41,6 @@ public class WavFileDenoiseDemo {
 
     private static DeepFilterNetProcessor createDeepFilterNetProcessor(String projectRoot)
         throws IOException, UnsupportedAudioFileException {
-        String modelAbsolutePath = projectRoot + MODEL_RELATIVE_PATH;
         String inputWavAbsolutePath = projectRoot + INPUT_WAV_RELATIVE_PATH;
 
         // 确保输出目录存在
@@ -53,7 +50,7 @@ public class WavFileDenoiseDemo {
         }
         String outputWavPath = new File(outputDir, OUTPUT_WAV_NAME).getAbsolutePath();
 
-        DeepFilterNetProcessor processor = new DeepFilterNetProcessor(modelAbsolutePath, 100.0f, "info");
+        DeepFilterNetProcessor processor = new DeepFilterNetProcessor(100.0f, "info");
         processor.denoiseWavFile(inputWavAbsolutePath, outputWavPath);
         return processor;
     }

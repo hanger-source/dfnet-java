@@ -145,17 +145,4 @@ public class DeepFilterNetLibraryInitializer {
         }
         return directory.delete();
     }
-
-    /**
-     * 在应用程序退出时调用，用于清理解压的本地库临时文件。
-     */
-    public static synchronized void releaseNativeLibrary() {
-        if (nativeLibTempDir != null && nativeLibTempDir.exists()) {
-            if (deleteDirectory(nativeLibTempDir)) {
-                log.info("DF_INFO: 临时本地库目录已删除: {}", nativeLibTempDir.getAbsolutePath());
-            } else {
-                log.warn("DF_WARN: 无法删除临时本地库目录: {}", nativeLibTempDir.getAbsolutePath());
-            }
-        }
-    }
 }

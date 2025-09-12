@@ -17,6 +17,7 @@ import org.agrona.concurrent.SleepingIdleStrategy;
 import source.hanger.jna.DeepFilterNetLibraryInitializer;
 import source.hanger.jna.DeepFilterNetNativeLib;
 import source.hanger.log.DfNativeLogAgent;
+import source.hanger.model.DeepFilterNetModelManager;
 import source.hanger.util.WavFileWriter;
 
 @Slf4j
@@ -30,23 +31,16 @@ public class DeepFilterNetProcessor {
     /**
      * DeepFilterNetProcessor 构造函数，初始化模型。
      *
-     * @param modelPath DeepFilterNet ONNX 模型文件路径 (.tar.gz)。
      * @param attenLim  衰减限制 (dB)。
      * @param logLevel  日志级别 (例如 "info", "debug")。
      * @throws RuntimeException 如果模型无法创建或文件不存在。
      */
-    public DeepFilterNetProcessor(String modelPath, float attenLim, String logLevel) throws RuntimeException {
-        // 确保模型文件存在
-        File modelFile = new File(modelPath);
-        if (!modelFile.exists()) {
-            throw new RuntimeException("DF_ERROR: 模型文件不存在: " + modelPath);
-        }
-
+    public DeepFilterNetProcessor(float attenLim, String logLevel) throws RuntimeException {
         // 获取 DeepFilterNetNativeLib 实例
         nativeLib = DeepFilterNetLibraryInitializer.getNativeLibraryInstance();
 
-        // 1. 创建 DeepFilterNet 模型实例
-        dfState = nativeLib.df_create(modelPath, attenLim, logLevel);
+        // 1. 创建 DeepFilterNet 模型实例，使用 DeepFilterNetModelManager 获取模型路径
+        dfState = nativeLib.df_create(DeepFilterNetModelManager.getModelPath(), attenLim, logLevel);
         if (dfState == Pointer.NULL) {
             throw new RuntimeException("DF_ERROR: 无法创建 DeepFilterNet 模型。请检查模型路径或日志。");
         }

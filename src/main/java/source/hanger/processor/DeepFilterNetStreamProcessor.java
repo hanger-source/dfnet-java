@@ -25,6 +25,7 @@ import org.agrona.concurrent.ringbuffer.RingBufferDescriptor;
 import source.hanger.jna.DeepFilterNetLibraryInitializer;
 import source.hanger.jna.DeepFilterNetNativeLib;
 import source.hanger.log.DfNativeLogAgent;
+import source.hanger.model.DeepFilterNetModelManager;
 import source.hanger.processor.agent.CompositeIoLogAgent;
 import source.hanger.processor.agent.DeepFilterNetListenerAgent;
 import source.hanger.processor.agent.DeepFilterNetProcessingAgent;
@@ -34,7 +35,6 @@ import source.hanger.util.AudioFrameListener;
 public class DeepFilterNetStreamProcessor {
 
     private static final int MSG_TYPE_ID = 1; // Ring Buffer 消息类型 ID
-    private static final String MODEL_RESOURCE_PATH = "models/DeepFilterNet3_onnx.tar.gz"; // JAR 内部模型路径
 
     private final OneToOneRingBuffer ringBuffer; // Agrona Ring Buffer 作为内部输入缓冲区
     private final MutableDirectBuffer tempWriteBuffer; // 用于将传入的 byte[] 包装成 DirectBuffer
@@ -43,10 +43,9 @@ public class DeepFilterNetStreamProcessor {
     @lombok.Getter
     private final int frameLength;
     private final AgentRunner processingAgentRunner;
-    private final AgentRunner ioLogAgentRunner; // 新增组合 Agent 的 Runner
+    private final AgentRunner ioLogAgentRunner; // 组合 Agent 的 Runner
     private final DeepFilterNetNativeLib nativeLib;
     private Pointer dfState;
-    private File modelTempFile; // 用于存储临时模型文件的引用
 
     public DeepFilterNetStreamProcessor(
         float attenLim,
@@ -56,8 +55,9 @@ public class DeepFilterNetStreamProcessor {
         int listenerQueueCapacity) {
         this.nativeLib = DeepFilterNetLibraryInitializer.getNativeLibraryInstance();
 
-        // 提取 JAR 内部模型资源到临时文件并初始化本地库
-        initializeModel(attenLim, logLevel);
+        // Use DeepFilterNetModelManager to get model path and initialize native library
+
+        this.dfState = nativeLib.df_create(DeepFilterNetModelManager.getModelPath(), attenLim, logLevel);
 
         if (this.dfState == null || Pointer.nativeValue(this.dfState) == 0) {
             throw new IllegalStateException("DF_LOG_ERROR: 无法创建 DeepFilterNet 状态。");
@@ -97,34 +97,13 @@ public class DeepFilterNetStreamProcessor {
         this.processingAgentRunner = new AgentRunner(idleStrategy,
             exception -> log.error("DF_LOG_ERROR: 处理代理出现异常: {}", exception.getMessage(), exception), null,
             processingAgent);
-        // 实例化 DfNativeLogAgent
-        // 实例化 CompositeIoLogAgent，将 listenerAgent 和 logAgent 传入
+
         CompositeIoLogAgent compositeIoLogAgent = new CompositeIoLogAgent(listenerAgent, logAgent);
 
-        // 实例化 ioLogAgentRunner，将 compositeIoLogAgent 作为参数传入
         this.ioLogAgentRunner = new AgentRunner(idleStrategy,
             exception -> log.error("DF_LOG_ERROR: 组合I/O/日志代理出现异常: {}", exception.getMessage(), exception),
             null,
             compositeIoLogAgent);
-    }
-
-    /**
-     * 从 JAR 内部提取资源到临时文件。
-     *
-     * @return 创建的临时文件
-     * @throws IOException 如果无法读取资源或创建/写入文件
-     */
-    private static File extractResourceToFile() throws IOException {
-        try (InputStream inputStream = DeepFilterNetStreamProcessor.class.getClassLoader().getResourceAsStream(
-            DeepFilterNetStreamProcessor.MODEL_RESOURCE_PATH)) {
-            if (inputStream == null) {
-                throw new FileNotFoundException("JAR 资源未找到: " + DeepFilterNetStreamProcessor.MODEL_RESOURCE_PATH);
-            }
-            File tempFile = File.createTempFile("df_model_", ".tar.gz");
-            tempFile.deleteOnExit(); // 确保 JVM 退出时删除文件
-            Files.copy(inputStream, tempFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-            return tempFile;
-        }
     }
 
     public void start() {
@@ -156,15 +135,6 @@ public class DeepFilterNetStreamProcessor {
             nativeLib.df_free(dfState);
             dfState = Pointer.NULL;
         }
-        if (modelTempFile != null && modelTempFile.exists()) {
-            if (modelTempFile.delete()) {
-                log.info("DF_INFO: 临时模型文件已删除: {}", modelTempFile.getAbsolutePath());
-            } else {
-                log.warn("DF_WARN: 无法删除临时模型文件: {}", modelTempFile.getAbsolutePath());
-            }
-        }
-        // 新增：调用本地库清理方法
-        DeepFilterNetLibraryInitializer.releaseNativeLibrary();
     }
 
     public boolean isRunning() {
@@ -198,25 +168,4 @@ public class DeepFilterNetStreamProcessor {
         }
         return true;
     }
-
-    /**
-     * 从 JAR 内部提取模型资源到临时文件，并初始化本地库的 DeepFilterNet 状态。
-     *
-     * @param attenLim 衰减限制
-     * @param logLevel 日志级别
-     * @throws UncheckedIOException 如果无法提取模型资源
-     */
-    private void initializeModel(float attenLim, String logLevel) {
-        String actualModelPath;
-        try {
-            this.modelTempFile = extractResourceToFile();
-            actualModelPath = this.modelTempFile.getAbsolutePath();
-            log.info("DF_INFO: 模型已提取到临时文件: {}", actualModelPath);
-        } catch (IOException e) {
-            log.error("DF_ERROR: 无法提取模型资源: {}", e.getMessage());
-            throw new UncheckedIOException("无法提取模型资源", e);
-        }
-        this.dfState = nativeLib.df_create(actualModelPath, attenLim, logLevel);
-    }
-
 }
