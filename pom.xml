@@ -100,6 +100,48 @@
                     </systemProperties>
                 </configuration>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.1.0</version>
+                <configuration>
+                    <archive>
+                        <manifest>
+                            <addClasspath>true</addClasspath>
+                            <mainClass>source.hanger.demo.RealtimeDenoiseDemo</mainClass>
+                        </manifest>
+                    </archive>
+                    <includes>
+                        <include>**/*.class</include>
+                        <include>**/*.xml</include>
+                        <include>**/*.properties</include>
+                        <include>models/**</include>
+                    </includes>
+                </configuration>
+            </plugin>
+            <!-- Maven Resources Plugin - 用于处理资源文件，将 models 目录添加到资源中 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <version>3.2.0</version>
+                <executions>
+                    <execution>
+                        <id>copy-models</id>
+                        <phase>process-resources</phase>
+                        <goals>
+                            <goal>copy-resources</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.outputDirectory}/models</outputDirectory>
+                            <resources>
+                                <resource>
+                                    <directory>${project.basedir}/models</directory>
+                                </resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
 

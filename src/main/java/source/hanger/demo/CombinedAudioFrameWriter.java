@@ -2,6 +2,7 @@ package source.hanger.demo;
 
 import java.io.IOException;
 import javax.sound.sampled.AudioFormat;
+import java.nio.ByteBuffer;
 
 import lombok.extern.slf4j.Slf4j;
 import source.hanger.util.AudioFrameListener;
@@ -19,8 +20,14 @@ public class CombinedAudioFrameWriter implements AudioFrameListener, AutoCloseab
 
     @Override
     public void onOriginalAudioFrame(byte[] audioBytes, int offset, int length) {
+        // 将 byte[] 转换为 ByteBuffer，然后调用接收 ByteBuffer 的方法
+        ByteBuffer buffer = ByteBuffer.wrap(audioBytes, offset, length);
+        onOriginalAudioFrame(buffer);
+    }
+
+    public void onOriginalAudioFrame(ByteBuffer audioBuffer) {
         try {
-            originalWavWriter.write(audioBytes, offset, length);
+            originalWavWriter.write(audioBuffer);
         } catch (IOException e) {
             log.error("DF_ERROR: 写入原始音频文件失败: {}", e.getMessage(), e);
         }
@@ -28,8 +35,14 @@ public class CombinedAudioFrameWriter implements AudioFrameListener, AutoCloseab
 
     @Override
     public void onDenoisedAudioFrame(byte[] audioBytes, int offset, int length) {
+        // 将 byte[] 转换为 ByteBuffer，然后调用接收 ByteBuffer 的方法
+        ByteBuffer buffer = ByteBuffer.wrap(audioBytes, offset, length);
+        onDenoisedAudioFrame(buffer);
+    }
+
+    public void onDenoisedAudioFrame(ByteBuffer audioBuffer) {
         try {
-            denoisedWavWriter.write(audioBytes, offset, length);
+            denoisedWavWriter.write(audioBuffer);
         } catch (IOException e) {
             log.error("DF_ERROR: 写入降噪音频文件失败: {}", e.getMessage(), e);
         }

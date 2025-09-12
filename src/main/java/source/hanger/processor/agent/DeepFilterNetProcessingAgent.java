@@ -16,8 +16,10 @@ import source.hanger.jna.DeepFilterNetNativeLib;
 
 @Slf4j
 public class DeepFilterNetProcessingAgent implements Agent {
+    // 修改：将 AudioFormat 字段的访问修饰符改为 public
+    public static final AudioFormat AUDIO_FORMAT = new AudioFormat(48000.0f, 16, 1, true, false);
     private static final int MSG_TYPE_ID = 1; // 新增：消息类型ID
-    private final AudioFormat audioFormat;
+    // 48kHz, 16-bit, mono, signed, little-endian
     private final DeepFilterNetNativeLib nativeLib;
     private final Pointer dfState;
     private final int frameLength;
@@ -29,14 +31,12 @@ public class DeepFilterNetProcessingAgent implements Agent {
     private final float[] internalInputFloats;
 
     public DeepFilterNetProcessingAgent(
-        AudioFormat audioFormat,
         DeepFilterNetNativeLib nativeLib,
         Pointer dfState,
         int frameLength,
         OneToOneRingBuffer ringBuffer,
         OneToOneConcurrentArrayQueue<byte[]> listenerOutputQueue,
         AtomicBoolean endOfInputSignaled) {
-        this.audioFormat = audioFormat;
         this.nativeLib = nativeLib;
         this.dfState = dfState;
         this.frameLength = frameLength;
@@ -44,7 +44,8 @@ public class DeepFilterNetProcessingAgent implements Agent {
         this.listenerOutputQueue = listenerOutputQueue;
         this.endOfInputSignaled = endOfInputSignaled;
 
-        final int bytesPerFullFrame = frameLength * audioFormat.getFrameSize();
+        // 使用固定的 AUDIO_FORMAT
+        final int bytesPerFullFrame = frameLength * AUDIO_FORMAT.getFrameSize();
         final int frameAccumulatorCapacity = BitUtil.findNextPositivePowerOfTwo(
             bytesPerFullFrame + ringBuffer.maxMsgLength());
         log.info(
@@ -52,7 +53,7 @@ public class DeepFilterNetProcessingAgent implements Agent {
                 + "frameAccumulatorCapacity={}",
             bytesPerFullFrame, ringBuffer.maxMsgLength(), frameAccumulatorCapacity);
         this.frameAccumulator = ByteBuffer.allocateDirect(frameAccumulatorCapacity);
-        this.frameAccumulator.order(audioFormat.isBigEndian() ? ByteOrder.BIG_ENDIAN : ByteOrder.LITTLE_ENDIAN);
+        this.frameAccumulator.order(AUDIO_FORMAT.isBigEndian() ? ByteOrder.BIG_ENDIAN : ByteOrder.LITTLE_ENDIAN);
         this.internalInputFloats = new float[frameLength];
     }
 
@@ -64,15 +65,12 @@ public class DeepFilterNetProcessingAgent implements Agent {
     @Override
     public int doWork() {
         int workDone = 0;
-        final int bytesPerFullFrame = frameLength * audioFormat.getFrameSize();
+        // 使用固定的 AUDIO_FORMAT
+        final int bytesPerFullFrame = frameLength * AUDIO_FORMAT.getFrameSize();
 
         // 优先处理已积累的完整帧
         if (frameAccumulator.position() >= bytesPerFullFrame) {
-            // log.info("DF_ACCUM_DIAG: processLoop: 进入帧处理。frameAccumulator.position()={}, bytesPerFullFrame={}",
-            //    frameAccumulator.position(), bytesPerFullFrame);
             frameAccumulator.flip();
-            // log.info("DF_ACCUM_DIAG: processLoop: flip()后 frameAccumulator.position()={}, limit()={}",
-            //    frameAccumulator.position(), frameAccumulator.limit());
 
             for (int i = 0; i < frameLength; i++) {
                 internalInputFloats[i] = frameAccumulator.getShort() / 32768.0f;
@@ -81,15 +79,10 @@ public class DeepFilterNetProcessingAgent implements Agent {
             int remainingBytes = frameAccumulator.remaining();
             if (remainingBytes > 0) {
                 frameAccumulator.compact();
-                // log.info("DF_ACCUM_DIAG: processLoop: compact()后 frameAccumulator.position()={}, limit()={}",
-                //    frameAccumulator.position(), frameAccumulator.limit());
             } else {
                 frameAccumulator.clear();
-                // log.info("DF_ACCUM_DIAG: processLoop: clear()后 frameAccumulator.position()={}, limit()={}",
-                //    frameAccumulator.position(), frameAccumulator.limit());
             }
 
-            // long frameProcessStartTime = System.nanoTime(); // 性能诊断开始
             float[] outputFloats = new float[frameLength];
             nativeLib.df_process_frame(dfState, internalInputFloats, outputFloats);
 
@@ -101,23 +94,14 @@ public class DeepFilterNetProcessingAgent implements Agent {
                 // 如果队列满，短暂让出 CPU，避免忙等，等待 listener agent 消费
                 Thread.yield();
             }
-            // log.info("DF_ACCUM_DIAG: processLoop: 处理并提供一个完整帧。listenerOutputQueue.size()={}",
-            //    listenerOutputQueue.size());
             workDone = 1; // 至少完成了一项工作
         }
 
         // 如果没有完整帧可处理，则尝试从 Ring Buffer 读取数据
         int messagesRead = ringBuffer.read((msgTypeId, buffer, index, length) -> {
             if (msgTypeId == MSG_TYPE_ID) {
-                // log.info(
-                //    "DF_ACCUM_DIAG: processLoop: Ring Buffer 消息到达. 消息长度={}, frameAccumulator.remaining()={}",
-                //    length, frameAccumulator.remaining());
                 if (frameAccumulator.remaining() >= length) {
-                    // log.info("DF_ACCUM_DIAG: processLoop: frameAccumulator 写入前 position: {}, limit: {}",
-                    //    frameAccumulator.position(), frameAccumulator.limit());
                     buffer.getBytes(index, frameAccumulator, length); // 修正：移除第三个参数 offset
-                    // log.info("DF_ACCUM_DIAG: processLoop: frameAccumulator 写入后 position: {}, limit: {}",
-                    //    frameAccumulator.position(), frameAccumulator.limit());
                 } else {
                     // log.info(
                     //    "DF_ACCUM_DIAG: processLoop: frameAccumulator 空间不足，无法完全读取 Ring Buffer 消息。消息长度: {}, "
@@ -133,17 +117,12 @@ public class DeepFilterNetProcessingAgent implements Agent {
 
         // 优雅退出条件：收到输入结束信号，ringBuffer已空，且frameAccumulator已清空
         if (endOfInputSignaled.get() && ringBuffer.size() == 0 && frameAccumulator.position() == 0) {
-            // log.info("DF_ACCUM_DIAG: processLoop: Agent 退出条件满足。正在刷新剩余数据。");
             // 确保在 agent 退出前，所有剩余数据都被 flush
             flushRemainingRingBufferData(frameAccumulator);
-            // log.info("DF_ACCUM_DIAG: processLoop: 刷新后 frameAccumulator.position()={}", frameAccumulator.position());
             if (frameAccumulator.position() == 0) {
-                // log.info("DF_ACCUM_DIAG: processLoop: Agent 准备停止。");
                 return 0; // 表示已完成所有工作，AgentRunner 可以停止此 Agent
             } else {
                 // 如果刷新后依然有数据，可能是逻辑错误，或者需要更多轮询来清空
-                // log.warn("DF_ACCUM_DIAG: processLoop: Agent 退出时 frameAccumulator 未清空，position={}",
-                //    frameAccumulator.position());
                 return 1; // 尝试再做一轮工作
             }
         }
@@ -152,22 +131,13 @@ public class DeepFilterNetProcessingAgent implements Agent {
     }
 
     private void flushRemainingRingBufferData(ByteBuffer frameAccumulator) {
-        final int bytesPerFullFrame = frameLength * audioFormat.getFrameSize();
+        // 使用固定的 AUDIO_FORMAT
+        final int bytesPerFullFrame = frameLength * AUDIO_FORMAT.getFrameSize();
 
         ringBuffer.read((msgTypeId, buffer, index, length) -> {
             if (msgTypeId == MSG_TYPE_ID) {
-                // log.info(
-                //    "DF_ACCUM_DIAG: flushRemainingRingBufferData: Ring Buffer 消息到达. 消息长度={}, frameAccumulator"
-                //        + ".remaining()={}",
-                //    length, frameAccumulator.remaining());
                 if (frameAccumulator.remaining() >= length) {
-                    // log.info(
-                    //    "DF_ACCUM_DIAG: flushRemainingRingBufferData: frameAccumulator 写入前 position: {}, limit: {}",
-                    //    frameAccumulator.position(), frameAccumulator.limit());
                     buffer.getBytes(index, frameAccumulator, length); // 修正 Agrona 的 getBytes 调用
-                    // log.info(
-                    //    "DF_ACCUM_DIAG: flushRemainingRingBufferData: frameAccumulator 写入后 position: {}, limit: {}",
-                    //    frameAccumulator.position(), frameAccumulator.limit());
                 } else {
                     // log.info(
                     //    "DF_ACCUM_DIAG: flushRemainingRingBufferData: frameAccumulator 空间不足，无法完全读取 Ring Buffer "
@@ -177,18 +147,10 @@ public class DeepFilterNetProcessingAgent implements Agent {
                 }
             }
         }, Integer.MAX_VALUE);
-        // log.info(
-        //    "DF_ACCUM_DIAG: flushRemainingRingBufferData: 从 Ring Buffer 读取所有剩余消息. frameAccumulator.position()={}",
-        //    frameAccumulator.position());
 
         if (frameAccumulator.position() > 0) {
-            // log.info("DF_ACCUM_DIAG: flushRemainingRingBufferData: 缓冲区存在数据。position={}, remaining={}",
-            //    frameAccumulator.position(), frameAccumulator.remaining());
             frameAccumulator.flip();
-            // log.info("DF_ACCUM_DIAG: flushRemainingRingBufferData: flip()后 position={}, limit={}",
-            //    frameAccumulator.position(), frameAccumulator.limit());
             int currentBufferedBytes = frameAccumulator.remaining();
-            // log.info("DF_ACCUM_DIAG: flushRemainingRingBufferData: 缓冲区剩余字节数: {}", currentBufferedBytes);
 
             if (currentBufferedBytes < bytesPerFullFrame) {
                 frameAccumulator.position(currentBufferedBytes);
@@ -197,7 +159,6 @@ public class DeepFilterNetProcessingAgent implements Agent {
                     frameAccumulator.put((byte)0);
                 }
                 frameAccumulator.rewind();
-                // log.info("DF_ACCUM_DIAG: 刷新并零填充 {} 字节以构成最终帧。", bytesPerFullFrame - currentBufferedBytes);
             } else {
                 frameAccumulator.rewind();
                 // log.info(
@@ -218,18 +179,15 @@ public class DeepFilterNetProcessingAgent implements Agent {
             while (!listenerOutputQueue.offer(processedBytes)) {
                 Thread.yield();
             }
-            // log.info("DF_ACCUM_DIAG: flushRemainingRingBufferData: 处理并提供一个完整帧。listenerOutputQueue.size()={}",
-            //    listenerOutputQueue.size());
 
             frameAccumulator.clear(); // 确保 frameAccumulator 在处理完所有剩余数据后被完全清空
-            // log.info("DF_ACCUM_DIAG: flushRemainingRingBufferData: clear()后 frameAccumulator.position()={}",
-            //    frameAccumulator.position());
         }
     }
 
     private byte[] convertFloatsToBytes(float[] outputFloats, int bytesPerFullFrame) {
         ByteBuffer outputByteBuffer = ByteBuffer.allocate(bytesPerFullFrame);
-        outputByteBuffer.order(audioFormat.isBigEndian() ? ByteOrder.BIG_ENDIAN : ByteOrder.LITTLE_ENDIAN);
+        // 使用固定的 AUDIO_FORMAT
+        outputByteBuffer.order(AUDIO_FORMAT.isBigEndian() ? ByteOrder.BIG_ENDIAN : ByteOrder.LITTLE_ENDIAN);
         for (int i = 0; i < frameLength; i++) {
             short s = (short)(outputFloats[i] * 32768.0f);
             outputByteBuffer.putShort(s);

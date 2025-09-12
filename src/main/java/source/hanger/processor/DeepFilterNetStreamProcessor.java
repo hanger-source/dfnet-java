@@ -1,9 +1,14 @@
 package source.hanger.processor;
 
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.util.concurrent.atomic.AtomicBoolean;
-
-import javax.sound.sampled.AudioFormat;
 
 import com.sun.jna.Pointer;
 import lombok.extern.slf4j.Slf4j;
@@ -28,6 +33,7 @@ import source.hanger.util.AudioFrameListener;
 public class DeepFilterNetStreamProcessor {
 
     private static final int MSG_TYPE_ID = 1; // Ring Buffer 消息类型 ID
+    private static final String MODEL_RESOURCE_PATH = "models/DeepFilterNet3_onnx.tar.gz"; // JAR 内部模型路径
 
     private final DfNativeLogThread logThread;
     private final OneToOneRingBuffer ringBuffer; // Agrona Ring Buffer 作为内部输入缓冲区
@@ -42,28 +48,23 @@ public class DeepFilterNetStreamProcessor {
     private final AgentRunner listenerAgentRunner;
     private final DeepFilterNetNativeLib nativeLib;
     private Pointer dfState;
+    private File modelTempFile; // 新增：用于存储临时模型文件的引用
 
     public DeepFilterNetStreamProcessor(
-        AudioFormat audioFormat,
-        String modelPath,
         float attenLim,
         String logLevel,
         AudioFrameListener denoisedFrameListener,
         int ringBufferCapacity,
         int listenerQueueCapacity) {
         this.nativeLib = DeepFilterNetLibraryInitializer.getNativeLibraryInstance();
-        this.dfState = nativeLib.df_create(modelPath, attenLim, logLevel); // 修正 df_create 参数
+
+        // 提取 JAR 内部模型资源到临时文件并初始化本地库
+        initializeModel(attenLim, logLevel);
+
         if (this.dfState == null || Pointer.nativeValue(this.dfState) == 0) {
             throw new IllegalStateException("DF_LOG_ERROR: 无法创建 DeepFilterNet 状态。");
         }
         this.frameLength = nativeLib.df_get_frame_length(dfState); // 从原生库获取帧长度
-        // 用于回调降噪后的音频帧
-
-        // log.info("DeepFilterNetStreamProcessor 正在初始化...");
-
-        // log.info("DeepFilterNet 状态已创建: {}", this.dfState);
-
-        // 替换 startNativeLogThread()
         this.logThread = new DfNativeLogThread(dfState);
         this.logThread.start();
 
@@ -76,9 +77,6 @@ public class DeepFilterNetStreamProcessor {
             ByteBuffer.allocateDirect(totalCapacity)); // 更改类型为 AtomicBuffer
         this.ringBuffer = new OneToOneRingBuffer(ringBufferDirectBuffer); // 更正 OneToOneRingBuffer 构造函数
         this.tempWriteBuffer = new UnsafeBuffer(new byte[alignedDataCapacity]); // tempWriteBuffer 的大小应该是实际数据存储的容量
-        // log.info(
-        //    "Agrona Ring Buffer 初始化完成. Total Capacity: {} bytes, Data Capacity (Max Message Length): {} bytes",
-        //    totalCapacity, alignedDataCapacity);
 
         // Agrona OneToOneConcurrentArrayQueue for listener output
         this.listenerOutputQueue = new OneToOneConcurrentArrayQueue<>(listenerQueueCapacity);
@@ -87,7 +85,6 @@ public class DeepFilterNetStreamProcessor {
         final IdleStrategy idleStrategy = new SleepingIdleStrategy(1); // 避免 CPU 忙等
 
         this.processingAgent = new DeepFilterNetProcessingAgent(
-            audioFormat,
             this.nativeLib,
             this.dfState,
             this.frameLength,
@@ -105,6 +102,25 @@ public class DeepFilterNetStreamProcessor {
         this.processingAgentRunner = new AgentRunner(idleStrategy, Throwable::printStackTrace, null,
             this.processingAgent);
         this.listenerAgentRunner = new AgentRunner(idleStrategy, Throwable::printStackTrace, null, this.listenerAgent);
+    }
+
+    /**
+     * 从 JAR 内部提取资源到临时文件。
+     *
+     * @return 创建的临时文件
+     * @throws IOException 如果无法读取资源或创建/写入文件
+     */
+    private static File extractResourceToFile() throws IOException {
+        try (InputStream inputStream = DeepFilterNetStreamProcessor.class.getClassLoader().getResourceAsStream(
+            DeepFilterNetStreamProcessor.MODEL_RESOURCE_PATH)) {
+            if (inputStream == null) {
+                throw new FileNotFoundException("JAR 资源未找到: " + DeepFilterNetStreamProcessor.MODEL_RESOURCE_PATH);
+            }
+            File tempFile = File.createTempFile("df_model_", ".tar.gz");
+            tempFile.deleteOnExit(); // 确保 JVM 退出时删除文件
+            Files.copy(inputStream, tempFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            return tempFile;
+        }
     }
 
     public void start() {
@@ -140,6 +156,13 @@ public class DeepFilterNetStreamProcessor {
             nativeLib.df_free(dfState);
             dfState = Pointer.NULL;
         }
+        if (modelTempFile != null && modelTempFile.exists()) {
+            if (modelTempFile.delete()) {
+                log.info("DF_INFO: 临时模型文件已删除: {}", modelTempFile.getAbsolutePath());
+            } else {
+                log.warn("DF_WARN: 无法删除临时模型文件: {}", modelTempFile.getAbsolutePath());
+            }
+        }
         if (logThread != null) {
             logThread.stopLogging();
             try {
@@ -155,18 +178,18 @@ public class DeepFilterNetStreamProcessor {
         return !endOfInputSignaled.get() || ringBuffer.size() > 0 || !listenerOutputQueue.isEmpty();
     }
 
-    public boolean processAudioFrame(byte[] inputBytes) {
+    public boolean processAudioFrame(ByteBuffer inputBuffer) {
         if (endOfInputSignaled.get()) {
             // log.warn("DF_WARN: processAudioFrame: 输入结束信号=true，拒绝处理新帧。");
             return false;
         }
 
         final int maxMsgLength = ringBuffer.maxMsgLength();
-        int offset = 0;
 
-        while (offset < inputBytes.length) {
-            int bytesToWrite = Math.min(inputBytes.length - offset, maxMsgLength);
-            tempWriteBuffer.putBytes(0, inputBytes, offset, bytesToWrite);
+        while (inputBuffer.hasRemaining()) {
+            int bytesToWrite = Math.min(inputBuffer.remaining(), maxMsgLength);
+            // 从传入的 ByteBuffer 读取数据到 tempWriteBuffer
+            inputBuffer.get(tempWriteBuffer.byteArray(), 0, bytesToWrite);
 
             while (!endOfInputSignaled.get()) { // 增加 endOfInputSignaled 检查
                 boolean offered = ringBuffer.write(MSG_TYPE_ID, tempWriteBuffer, 0, bytesToWrite);
@@ -178,9 +201,28 @@ public class DeepFilterNetStreamProcessor {
             if (endOfInputSignaled.get()) { // 如果在等待过程中生产者完成，则退出
                 return false;
             }
-            offset += bytesToWrite;
         }
         return true;
+    }
+
+    /**
+     * 从 JAR 内部提取模型资源到临时文件，并初始化本地库的 DeepFilterNet 状态。
+     *
+     * @param attenLim 衰减限制
+     * @param logLevel 日志级别
+     * @throws UncheckedIOException 如果无法提取模型资源
+     */
+    private void initializeModel(float attenLim, String logLevel) {
+        String actualModelPath;
+        try {
+            this.modelTempFile = extractResourceToFile();
+            actualModelPath = this.modelTempFile.getAbsolutePath();
+            log.info("DF_INFO: 模型已提取到临时文件: {}", actualModelPath);
+        } catch (IOException e) {
+            log.error("DF_ERROR: 无法提取模型资源: {}", e.getMessage());
+            throw new UncheckedIOException("无法提取模型资源", e);
+        }
+        this.dfState = nativeLib.df_create(actualModelPath, attenLim, logLevel);
     }
 
 }

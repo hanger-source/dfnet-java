@@ -3,6 +3,7 @@ package source.hanger.util;
 import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.ByteBuffer;
 
 import javax.sound.sampled.AudioFormat;
 
@@ -56,6 +57,25 @@ public class WavFileWriter implements AutoCloseable, java.io.Flushable, AudioFra
 
     public void write(byte[] b, int off, int len) throws IOException {
         os.write(b, off, len);
+        bytesWritten += len;
+    }
+
+    /**
+     * 将 ByteBuffer 的内容写入 WAV 文件。
+     * @param buffer 包含音频数据的 ByteBuffer
+     * @throws IOException 如果写入失败
+     */
+    public void write(ByteBuffer buffer) throws IOException {
+        int len = buffer.remaining();
+        // 直接从 ByteBuffer 写入 OutputStream
+        // 注意：这里需要确保 buffer 的 position 和 limit 是正确的
+        // 如果是 DirectByteBuffer，可以直接包装成 InputStream 或使用 Channel
+        // 但为了简化，这里直接将其内容复制到 byte[] 中再写入，可能会有一次复制
+        // 更优的做法是使用 FileChannel.write(ByteBuffer) 如果 OutputStream 支持
+        // 但 OutputStream 默认不支持 ByteBuffer，所以这里做一次复制是常见的妥协
+        byte[] tempBytes = new byte[len];
+        buffer.get(tempBytes);
+        os.write(tempBytes, 0, len);
         bytesWritten += len;
     }
 
