@@ -62,6 +62,7 @@ public class WavFileWriter implements AutoCloseable, java.io.Flushable, AudioFra
 
     /**
      * 将 ByteBuffer 的内容写入 WAV 文件。
+     *
      * @param buffer 包含音频数据的 ByteBuffer
      * @throws IOException 如果写入失败
      */
@@ -77,15 +78,6 @@ public class WavFileWriter implements AutoCloseable, java.io.Flushable, AudioFra
         buffer.get(tempBytes);
         os.write(tempBytes, 0, len);
         bytesWritten += len;
-    }
-
-    @Override
-    public void onOriginalAudioFrame(byte[] audioBytes, int offset, int length) {
-        try {
-            write(audioBytes, offset, length);
-        } catch (IOException e) {
-            log.error("写入原始音频帧失败: {}", e.getMessage(), e);
-        }
     }
 
     @Override

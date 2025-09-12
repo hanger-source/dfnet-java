@@ -171,6 +171,8 @@ public class DeepFilterNetStreamProcessor {
                 Thread.currentThread().interrupt();
             }
         }
+        // 新增：调用本地库清理方法
+        DeepFilterNetLibraryInitializer.releaseNativeLibrary();
     }
 
     public boolean isRunning() {
