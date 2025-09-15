@@ -14,7 +14,7 @@
         <jna.version>5.14.0</jna.version> <!-- JNA 版本 -->
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <lombok.version>1.18.38</lombok.version> <!-- 使用最新的 Lombok 版本 -->
-        <slf4j.version>1.7.32</slf4j.version> <!-- SLF4J API 版本 -->
+        <slf4j.version>2.0.15</slf4j.version> <!-- SLF4J API 版本 -->
         <logback.version>1.5.11</logback.version> <!-- Logback 版本 -->
         <agrona.version>2.2.4</agrona.version>
         <lib.path.os>unknown</lib.path.os> <!-- 默认的操作系统库路径 -->
@@ -133,7 +133,8 @@
                             <goal>copy-resources</goal>
                         </goals>
                         <configuration>
-                            <outputDirectory>${project.build.outputDirectory}</outputDirectory> <!-- 复制到 target/classes 根目录 -->
+                            <outputDirectory>${project.build.outputDirectory}
+                            </outputDirectory> <!-- 复制到 target/classes 根目录 -->
                             <resources>
                                 <resource>
                                     <directory>${project.basedir}/models</directory>

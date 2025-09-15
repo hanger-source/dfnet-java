@@ -1,6 +1,8 @@
 package source.hanger.demo;
 
-import javax.sound.sampled.AudioFormat;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+
 import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.DataLine;
 import javax.sound.sampled.LineUnavailableException;
@@ -9,10 +11,7 @@ import javax.sound.sampled.TargetDataLine;
 import lombok.extern.slf4j.Slf4j;
 import source.hanger.jna.DeepFilterNetLibraryInitializer;
 import source.hanger.processor.DeepFilterNetStreamProcessor;
-import source.hanger.processor.agent.DeepFilterNetProcessingAgent; // 导入 DeepFilterNetProcessingAgent 以获取 AUDIO_FORMAT
-
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
+import source.hanger.processor.agent.DeepFilterNetProcessingAgent;
 
 @Slf4j
 public class MicrophoneDenoiseDemo {
@@ -22,7 +21,8 @@ public class MicrophoneDenoiseDemo {
         String outputDenoisedWavPath = "out/microphone_denoised_audio.wav";
 
         // 移除 AudioFormat format = new AudioFormat(...) 的定义，直接使用 DeepFilterNetProcessingAgent.AUDIO_FORMAT
-        // AudioFormat format = new AudioFormat(48000.0f, 16, 1, true, false); // 48kHz, 16-bit, mono, signed, little-endian
+        // AudioFormat format = new AudioFormat(48000.0f, 16, 1, true, false); // 48kHz, 16-bit, mono, signed,
+        // little-endian
 
         DeepFilterNetStreamProcessor streamProcessor = null;
         CombinedAudioFrameWriter combinedAudioFrameWriter = null; // 使用 CombinedAudioFrameWriter
@@ -31,9 +31,10 @@ public class MicrophoneDenoiseDemo {
             // 确保本地库路径已初始化
             DeepFilterNetLibraryInitializer.initializeNativeLibraryPath();
 
-            combinedAudioFrameWriter = new CombinedAudioFrameWriter(DeepFilterNetProcessingAgent.AUDIO_FORMAT, outputOriginalWavPath,
+            combinedAudioFrameWriter = new CombinedAudioFrameWriter(DeepFilterNetProcessingAgent.AUDIO_FORMAT,
+                outputOriginalWavPath,
                 outputDenoisedWavPath);
-            streamProcessor = new DeepFilterNetStreamProcessor(100.0f, "trace", combinedAudioFrameWriter, 8192,
+            streamProcessor = new DeepFilterNetStreamProcessor(100.0f, combinedAudioFrameWriter, 8192,
                 500); // 修正构造函数参数
 
             // 启动 DeepFilterNetStreamProcessor 的内部处理线程
@@ -43,7 +44,8 @@ public class MicrophoneDenoiseDemo {
             int bytesPerFrame = DeepFilterNetProcessingAgent.AUDIO_FORMAT.getFrameSize();
             // byte[] buffer = new byte[frameLength * bytesPerFrame]; // 改为 ByteBuffer
             ByteBuffer buffer = ByteBuffer.allocateDirect(frameLength * bytesPerFrame); // 使用 DirectByteBuffer 优化性能
-            buffer.order(DeepFilterNetProcessingAgent.AUDIO_FORMAT.isBigEndian() ? ByteOrder.BIG_ENDIAN : ByteOrder.LITTLE_ENDIAN);
+            buffer.order(DeepFilterNetProcessingAgent.AUDIO_FORMAT.isBigEndian() ? ByteOrder.BIG_ENDIAN
+                : ByteOrder.LITTLE_ENDIAN);
 
             // 新增：用于从 TargetDataLine 读取数据的临时 byte[] 缓冲区
             byte[] tempReadBuffer = new byte[frameLength * bytesPerFrame];
@@ -51,13 +53,15 @@ public class MicrophoneDenoiseDemo {
             log.info("正在启动麦克风捕获和降噪处理，按 Ctrl+C 停止...");
 
             TargetDataLine targetDataLine;
-            DataLine.Info targetInfo = new DataLine.Info(TargetDataLine.class, DeepFilterNetProcessingAgent.AUDIO_FORMAT);
+            DataLine.Info targetInfo = new DataLine.Info(TargetDataLine.class,
+                DeepFilterNetProcessingAgent.AUDIO_FORMAT);
             if (!AudioSystem.isLineSupported(targetInfo)) {
                 log.error("麦克风输入不支持此音频格式: {}.", DeepFilterNetProcessingAgent.AUDIO_FORMAT);
                 throw new LineUnavailableException("麦克风输入不支持此音频格式。");
             }
             targetDataLine = (TargetDataLine)AudioSystem.getLine(targetInfo);
-            targetDataLine.open(DeepFilterNetProcessingAgent.AUDIO_FORMAT, frameLength * DeepFilterNetProcessingAgent.AUDIO_FORMAT.getFrameSize() * 4); // 缓冲区大小
+            targetDataLine.open(DeepFilterNetProcessingAgent.AUDIO_FORMAT,
+                frameLength * DeepFilterNetProcessingAgent.AUDIO_FORMAT.getFrameSize() * 4); // 缓冲区大小
             targetDataLine.start();
 
             // 麦克风捕获循环现在使用虚拟线程

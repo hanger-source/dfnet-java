@@ -28,7 +28,7 @@ public class WavFileWriter implements AutoCloseable, java.io.Flushable, AudioFra
             outputDir.mkdirs();
         }
 
-        this.os = new java.io.FileOutputStream(outputFile); // 创建实际的FileOutputStream
+        this.os = new java.io.BufferedOutputStream(new java.io.FileOutputStream(outputFile)); // 将 FileOutputStream 包装在 BufferedOutputStream 中
         // 写入 WAV 文件头，稍后会更新数据大小
         writeWavHeader(os, format, 0); // 暂时写入0，后续需要更新
     }

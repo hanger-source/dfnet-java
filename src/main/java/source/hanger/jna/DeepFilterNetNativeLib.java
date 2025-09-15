@@ -35,12 +35,12 @@ public interface DeepFilterNetNativeLib extends Library {
     // C: pub unsafe extern "C" fn df_set_post_filter_beta(st: *mut DFState, beta: f32)
     void df_set_post_filter_beta(Pointer st, float beta);
 
-    // 映射 df_next_log_msg
+    // 映射 df_next_log_msg (此方法将不再被直接使用，因为原生日志初始化已被禁用，无需从 native 层拉取日志)
     // C: pub unsafe extern "C" fn df_next_log_msg(st: *mut DFState) -> *mut c_char
     // Java: Pointer df_next_log_msg(Pointer st)
     Pointer df_next_log_msg(Pointer st);
 
-    // 映射 df_free_log_msg
+    // 映射 df_free_log_msg (此方法将不再被直接使用)
     // C: pub unsafe extern "C" fn df_free_log_msg(ptr: *mut c_char)
     void df_free_log_msg(Pointer ptr);
 

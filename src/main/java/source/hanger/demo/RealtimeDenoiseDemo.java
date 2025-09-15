@@ -11,6 +11,7 @@ import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.UnsupportedAudioFileException;
 
 import lombok.extern.slf4j.Slf4j;
+import source.hanger.DeepFilterNetServiceInitializer;
 import source.hanger.processor.DeepFilterNetStreamProcessor;
 import source.hanger.processor.agent.DeepFilterNetProcessingAgent;
 
@@ -46,7 +47,7 @@ public class RealtimeDenoiseDemo {
             combinedAudioFrameWriter = new CombinedAudioFrameWriter(DeepFilterNetProcessingAgent.AUDIO_FORMAT,
                 outputOriginalWavPath,
                 outputDenoisedWavPath);
-            streamProcessor = new DeepFilterNetStreamProcessor(100.0f, "trace", combinedAudioFrameWriter, 8192,
+            streamProcessor = new DeepFilterNetStreamProcessor(100.0f, combinedAudioFrameWriter, 8192,
                 500); // 修正构造函数参数，移除 modelPath
             log.info("DF_DIAG: RealtimeDenoiseDemo: streamProcessor 实例化完成。");
 
@@ -115,6 +116,13 @@ public class RealtimeDenoiseDemo {
         } catch (Exception e) { // Simplified exception handling
             log.error("DF_ERROR: 实时降噪应用发生错误: {}", e.getMessage(), e);
         } finally {
+            if (streamProcessor != null) {
+                log.info("DF_DIAG: RealtimeDenoiseDemo: 在 finally 块中调用 streamProcessor.stop()。");
+                streamProcessor.stop(); // 1. 先停止处理器，确保不再提交新的音频帧
+            }
+            // 2. 接着关闭 DeepFilterNetListenerAgent 及其虚拟线程池，等待所有 pending 任务完成
+            DeepFilterNetServiceInitializer.shutdown();
+
             if (audioInputStream != null) {
                 try {
                     audioInputStream.close();
@@ -124,14 +132,11 @@ public class RealtimeDenoiseDemo {
             }
             if (combinedAudioFrameWriter != null) {
                 try {
-                    combinedAudioFrameWriter.close();
+                    log.info("DF_DIAG: RealtimeDenoiseDemo: 在 finally 块中调用 combinedAudioFrameWriter.close()。");
+                    combinedAudioFrameWriter.close(); // 3. 最后关闭文件写入器
                 } catch (Exception e) {
                     log.error("DF_ERROR: 关闭 CombinedAudioFrameWriter 失败: {}", e.getMessage(), e);
                 }
-            }
-            if (streamProcessor != null) {
-                log.info("DF_DIAG: RealtimeDenoiseDemo: 在 finally 块中调用 streamProcessor.stop()。");
-                streamProcessor.stop(); // 移到 finally 块确保关闭
             }
         }
     }

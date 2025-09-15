@@ -50,7 +50,7 @@ public class WavFileDenoiseDemo {
         }
         String outputWavPath = new File(outputDir, OUTPUT_WAV_NAME).getAbsolutePath();
 
-        DeepFilterNetProcessor processor = new DeepFilterNetProcessor(100.0f, "info");
+        DeepFilterNetProcessor processor = new DeepFilterNetProcessor(100.0f);
         processor.denoiseWavFile(inputWavAbsolutePath, outputWavPath);
         return processor;
     }

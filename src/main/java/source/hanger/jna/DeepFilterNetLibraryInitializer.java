@@ -6,9 +6,12 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
+import java.util.concurrent.TimeUnit;
 
 import com.sun.jna.Native;
 import lombok.extern.slf4j.Slf4j;
+import org.agrona.concurrent.AgentRunner;
+import source.hanger.processor.agent.DeepFilterNetListenerAgent;
 
 @Slf4j
 public class DeepFilterNetLibraryInitializer {
@@ -110,6 +113,8 @@ public class DeepFilterNetLibraryInitializer {
                 deleteDirectory(nativeLibTempDir);
             }
         }
+
+        initializedPath = true;
     }
 
     public static synchronized DeepFilterNetNativeLib getNativeLibraryInstance() {
